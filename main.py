@@ -15,58 +15,58 @@ PAYMENT_URL = "https://serdipay.com/api/public-api/v1/merchant/payment-merchant"
 
 @app.get("/")
 async def home():
-    return {
-        "message": "Badiboss Pay API Running"
-    }
+    return {"message": "Badiboss Pay API Running"}
 
 @app.get("/health")
 async def health():
-    return {
-        "status": "ok"
-    }
+    return {"status": "ok"}
 
 def get_token():
-
     payload = {
         "api_id": SERDIPAY_API_ID,
-        "api_password": SERDIPAY_API_PASSWORD
+        "api_password": SERDIPAY_API_PASSWORD,
+        "merchantCode": SERDIPAY_MERCHANT_CODE
     }
 
     response = requests.post(TOKEN_URL, json=payload)
 
-    return response.json()
+    return {
+        "status_code": response.status_code,
+        "response": response.json()
+    }
 
 @app.post("/api/test-token")
 async def test_token():
-
-    token_response = get_token()
-
-    return token_response
+    return get_token()
 
 @app.post("/api/test-payment")
 async def test_payment(request: Request):
-
     body = await request.json()
 
     token_data = get_token()
+    token_response = token_data.get("response", {})
 
-    access_token = token_data.get("token")
+    access_token = (
+        token_response.get("token")
+        or token_response.get("access_token")
+        or token_response.get("accessToken")
+    )
 
     reference = str(uuid.uuid4())
 
     payload = {
-        "merchantCode": SERDIPAY_MERCHANT_CODE,
-        "merchant_pin": SERDIPAY_PIN,
         "api_id": SERDIPAY_API_ID,
         "api_password": SERDIPAY_API_PASSWORD,
+        "merchantCode": SERDIPAY_MERCHANT_CODE,
+        "merchant_pin": SERDIPAY_PIN,
+        "clientPhone": body.get("phone"),
         "amount": body.get("amount"),
-        "currency": body.get("currency", "USD"),
-        "telephone": body.get("phone"),
-        "reference": reference,
-        "description": "Badiboss Pay Test"
+        "currency": body.get("currency", "CDF"),
+        "telecom": body.get("telecom", "AM")
     }
 
     headers = {
+        "Content-Type": "application/json",
         "Authorization": f"Bearer {access_token}"
     }
 
@@ -78,16 +78,21 @@ async def test_payment(request: Request):
 
     return {
         "reference": reference,
+        "token_response": token_data,
+        "payment_payload_sent": {
+            "merchantCode": SERDIPAY_MERCHANT_CODE,
+            "clientPhone": body.get("phone"),
+            "amount": body.get("amount"),
+            "currency": body.get("currency", "CDF"),
+            "telecom": body.get("telecom", "AM")
+        },
+        "serdipay_status_code": response.status_code,
         "serdipay_response": response.json()
     }
 
 @app.post("/serdipay/callback")
 async def serdipay_callback(request: Request):
-
     data = await request.json()
-
     print("CALLBACK:", data)
 
-    return {
-        "success": True
-    }
+    return {"success": True}

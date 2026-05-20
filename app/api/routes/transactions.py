@@ -1,0 +1,114 @@
+import csv
+import io
+
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+from typing import Optional
+
+from app.api.deps import get_db, require_roles
+from app.core.roles import AdminRole
+from app.models.transaction import Transaction
+router = APIRouter(tags=["Transactions"])
+
+
+@router.get("/transactions")
+def list_transactions(
+    app_id: Optional[str] = Query(default=None),
+    company_id: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    user_id: Optional[str] = Query(default=None),
+    phone: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _=Depends(require_roles(AdminRole.SUPER_ADMIN, AdminRole.FINANCE_ADMIN, AdminRole.VIEWER)),
+):
+    query = db.query(Transaction)
+    if app_id:
+        query = query.filter(Transaction.app_id == app_id)
+    if company_id:
+        query = query.filter(Transaction.company_id == company_id)
+    if status:
+        query = query.filter(Transaction.status == status)
+    if user_id:
+        query = query.filter(Transaction.user_id == user_id)
+    if phone:
+        query = query.filter(Transaction.payer_phone == phone)
+    if search:
+        like_value = f"%{search}%"
+        query = query.filter(
+            (Transaction.reference.ilike(like_value))
+            | (Transaction.user_id.ilike(like_value))
+            | (Transaction.payer_phone.ilike(like_value))
+            | (Transaction.app_id.ilike(like_value))
+        )
+
+    total = query.count()
+    items = (
+        query.order_by(Transaction.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return {"items": items, "page": page, "page_size": page_size, "total": total}
+
+
+@router.get("/transactions/export")
+def export_transactions_csv(
+    app_id: Optional[str] = Query(default=None),
+    company_id: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    _=Depends(require_roles(AdminRole.SUPER_ADMIN, AdminRole.FINANCE_ADMIN)),
+):
+    query = db.query(Transaction)
+    if app_id:
+        query = query.filter(Transaction.app_id == app_id)
+    if company_id:
+        query = query.filter(Transaction.company_id == company_id)
+    rows = query.order_by(Transaction.created_at.desc()).limit(5000).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "reference",
+            "app_id",
+            "company_id",
+            "user_id",
+            "payer_phone",
+            "amount",
+            "currency",
+            "status",
+            "provider",
+            "fees",
+            "commission",
+            "net_amount",
+            "created_at",
+        ]
+    )
+    for row in rows:
+        writer.writerow(
+            [
+                row.reference,
+                row.app_id,
+                row.company_id,
+                row.user_id,
+                row.payer_phone or "",
+                row.amount,
+                row.currency,
+                row.status,
+                row.provider,
+                row.fees,
+                row.commission,
+                row.net_amount,
+                row.created_at.isoformat(),
+            ]
+        )
+    output.seek(0)
+    return StreamingResponse(
+        output,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="transactions_export.csv"'},
+    )

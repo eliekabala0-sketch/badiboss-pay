@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  background: var(--bg-color);
+  color: var(--text-color);
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+}
+
+:root {
+  --bg-color: #f5f7fb;
+  --text-color: #0f172a;
+}
+
+html.dark {
+  --bg-color: #020617;
+  --text-color: #e2e8f0;
+}

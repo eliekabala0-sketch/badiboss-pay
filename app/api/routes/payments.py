@@ -1,0 +1,114 @@
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_db
+from app.models.commission import Commission
+from app.models.connected_app import ConnectedApp
+from app.models.transaction import Transaction
+from app.schemas.transactions import PaymentCreateRequest, PaymentStatusRequest
+from app.services.commission_service import compute_commission_and_net
+from app.services.serdipay_service import create_payment, get_token
+from app.services.tracking_service import collect_tracking_data
+
+router = APIRouter(prefix="/payments", tags=["Payments"])
+
+
+@router.post("/create")
+def create_payment_endpoint(payload: PaymentCreateRequest, request: Request, db: Session = Depends(get_db)):
+    app = (
+        db.query(ConnectedApp)
+        .filter(
+            ConnectedApp.app_id == payload.app_id,
+            ConnectedApp.company_id == payload.company_id,
+            ConnectedApp.api_key == payload.api_key,
+            ConnectedApp.secret_key == payload.secret_key,
+            ConnectedApp.api_key_active.is_(True),
+            ConnectedApp.secret_key_active.is_(True),
+            ConnectedApp.status == "active",
+        )
+        .first()
+    )
+    if not app:
+        raise HTTPException(status_code=401, detail="Invalid app credentials")
+
+    provider_payload = create_payment(
+        phone=payload.phone,
+        amount=payload.amount,
+        currency=payload.currency,
+        telecom=payload.telecom,
+    )
+    provider_response = provider_payload.get("serdipay_response", {})
+    provider_status_code = provider_payload.get("serdipay_status_code", 500)
+    provider_reference = str(provider_response.get("reference") or provider_response.get("transactionId") or "")
+    status_value = "pending"
+    if provider_status_code in (200, 201):
+        status_value = "success"
+    elif provider_status_code >= 400:
+        status_value = "failed"
+
+    provider_fees = 0.0
+    commission, net_amount = compute_commission_and_net(app, payload.amount, provider_fees=provider_fees)
+    tracking = collect_tracking_data(request, source_application=payload.source_application or app.name)
+
+    tx = Transaction(
+        reference=provider_payload["reference"],
+        app_id=payload.app_id,
+        user_id=payload.user_id,
+        payer_phone=payload.phone,
+        company_id=payload.company_id,
+        amount=payload.amount,
+        currency=payload.currency,
+        status=status_value,
+        provider="serdipay",
+        provider_reference=provider_reference or None,
+        fees=provider_fees,
+        commission=commission,
+        net_amount=net_amount,
+        payment_method=payload.payment_method,
+        public_ip=tracking["public_ip"],
+        country=tracking["country"],
+        city=tracking["city"],
+        region=tracking["region"],
+        isp=tracking["isp"],
+        device=tracking["device"],
+        browser=tracking["browser"],
+        operating_system=tracking["operating_system"],
+        device_type=tracking["device_type"],
+        source_application=tracking["source_application"],
+    )
+    db.add(tx)
+    if commission > 0:
+        db.add(
+            Commission(
+                app_id=payload.app_id,
+                company_id=payload.company_id,
+                transaction_reference=tx.reference,
+                commission_type=app.commission_type,
+                commission_value=app.commission_value,
+                amount_collected=commission,
+                currency=payload.currency,
+            )
+        )
+    db.commit()
+    db.refresh(tx)
+
+    return {
+        "transaction_id": tx.id,
+        "reference": tx.reference,
+        "status": tx.status,
+        "provider": tx.provider,
+        "provider_response": provider_response,
+    }
+
+
+@router.post("/status")
+def payment_status(payload: PaymentStatusRequest, db: Session = Depends(get_db)):
+    tx = db.query(Transaction).filter(Transaction.reference == payload.reference).first()
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return {"reference": tx.reference, "status": tx.status, "provider_reference": tx.provider_reference}
+
+
+@router.post("/test-token")
+def test_token():
+    return get_token()

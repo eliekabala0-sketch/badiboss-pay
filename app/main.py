@@ -24,7 +24,19 @@ app.add_middleware(
 app.middleware("http")(request_context_middleware)
 app.include_router(api_router)
 
-frontend_dist = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+
+def _resolve_frontend_dist() -> Path:
+    candidates = [
+        Path(__file__).resolve().parents[1] / "frontend" / "dist",
+        Path.cwd() / "frontend" / "dist",
+    ]
+    for candidate in candidates:
+        if (candidate / "index.html").exists():
+            return candidate
+    return candidates[0]
+
+
+frontend_dist = _resolve_frontend_dist()
 frontend_index = frontend_dist / "index.html"
 frontend_assets = frontend_dist / "assets"
 

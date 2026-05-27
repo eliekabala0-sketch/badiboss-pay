@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     serdipay_outbound_proxy_url: Optional[str] = None
     serdipay_expected_outbound_ip: str = "66.33.22.87"
     serdipay_egress_check_url: str = "https://api.ipify.org?format=json"
+    badiboss_public_domain: str = "pay.badiboss.com"
 
     client_callback_timeout_seconds: int = 8
     geoip_lookup_enabled: bool = True

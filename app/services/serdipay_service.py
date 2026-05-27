@@ -1,5 +1,7 @@
 import uuid
+import socket
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -25,34 +27,134 @@ def _serdipay_request(method: str, url: str, **kwargs: Any) -> requests.Response
     return requests.request(method, url, **kwargs)
 
 
-def get_egress_diagnostic() -> dict:
-    proxies = _serdipay_proxy_config()
-    diagnostic = {
-        "proxy_configured": bool(proxies),
-        "expected_outbound_ip": settings.serdipay_expected_outbound_ip,
-        "observed_outbound_ip": None,
-        "matches_expected_ip": False,
-        "check_status_code": None,
-        "error": None,
-    }
+def _direct_request(method: str, url: str, **kwargs: Any) -> requests.Response:
+    return requests.request(method, url, **kwargs)
+
+
+def _observed_ip(proxies: dict[str, str] | None = None) -> dict:
     try:
-        response = _serdipay_request("GET", settings.serdipay_egress_check_url, timeout=15)
-        diagnostic["check_status_code"] = response.status_code
+        kwargs: dict[str, Any] = {"timeout": 15}
+        if proxies:
+            kwargs["proxies"] = proxies
+        response = requests.get(settings.serdipay_egress_check_url, **kwargs)
         payload = response.json()
         observed_ip = payload.get("ip")
-        diagnostic["observed_outbound_ip"] = observed_ip
-        diagnostic["matches_expected_ip"] = observed_ip == settings.serdipay_expected_outbound_ip
+        return {
+            "status_code": response.status_code,
+            "observed_outbound_ip": observed_ip,
+            "matches_expected_ip": observed_ip == settings.serdipay_expected_outbound_ip,
+            "error": None,
+        }
     except Exception as exc:
-        diagnostic["error"] = exc.__class__.__name__
-    return diagnostic
+        return {
+            "status_code": None,
+            "observed_outbound_ip": None,
+            "matches_expected_ip": False,
+            "error": exc.__class__.__name__,
+        }
 
 
-def get_token() -> dict:
-    payload = {
+def _public_domain_dns() -> dict:
+    try:
+        records = socket.getaddrinfo(settings.badiboss_public_domain, 443, type=socket.SOCK_STREAM)
+        addresses = sorted({record[4][0] for record in records})
+        return {"domain": settings.badiboss_public_domain, "addresses": addresses, "error": None}
+    except Exception as exc:
+        return {"domain": settings.badiboss_public_domain, "addresses": [], "error": exc.__class__.__name__}
+
+
+def _proxy_summary(proxies: dict[str, str] | None) -> dict:
+    if not proxies:
+        return {"configured": False, "host": None, "port": None, "tcp_reachable": None}
+
+    parsed = urlparse(proxies["https"])
+    host = parsed.hostname
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    reachable = False
+    if host and port:
+        try:
+            with socket.create_connection((host, port), timeout=5):
+                reachable = True
+        except OSError:
+            reachable = False
+    return {"configured": True, "host": host, "port": port, "tcp_reachable": reachable}
+
+
+def _token_payload() -> dict:
+    return {
         "api_id": settings.serdipay_api_id,
         "api_password": settings.serdipay_api_password,
         "merchantCode": settings.serdipay_merchant_code,
     }
+
+
+def _safe_token_test(proxies: dict[str, str] | None = None) -> dict:
+    try:
+        kwargs: dict[str, Any] = {"json": _token_payload(), "timeout": 20}
+        if proxies:
+            kwargs["proxies"] = proxies
+        response = requests.post(TOKEN_URL, **kwargs)
+        try:
+            payload = response.json()
+            response_keys = sorted(payload.keys()) if isinstance(payload, dict) else []
+            token_present = any(key in payload for key in ("token", "access_token", "accessToken")) if isinstance(payload, dict) else False
+            message = payload.get("message") or payload.get("detail") if isinstance(payload, dict) else None
+        except ValueError:
+            response_keys = []
+            token_present = False
+            message = response.text[:160]
+        return {
+            "status_code": response.status_code,
+            "token_present": token_present,
+            "response_keys": response_keys,
+            "message": message,
+            "error": None,
+        }
+    except Exception as exc:
+        return {
+            "status_code": None,
+            "token_present": False,
+            "response_keys": [],
+            "message": None,
+            "error": exc.__class__.__name__,
+        }
+
+
+def get_egress_diagnostic() -> dict:
+    proxies = _serdipay_proxy_config()
+    direct_egress = _observed_ip()
+    proxy_egress = _observed_ip(proxies) if proxies else None
+    public_dns = _public_domain_dns()
+    proxy = _proxy_summary(proxies)
+
+    if direct_egress["matches_expected_ip"]:
+        conclusion = "Les appels directs sortent deja avec l'IP attendue par SerdiPay."
+    elif proxy_egress and proxy_egress["matches_expected_ip"]:
+        conclusion = "Les appels SerdiPay doivent passer par le proxy configure; ce proxy sort avec l'IP attendue."
+    elif settings.serdipay_expected_outbound_ip in public_dns["addresses"]:
+        conclusion = "L'IP attendue correspond au domaine public/edge Railway, mais pas a l'IP sortante du service. Elle ne peut pas etre utilisee comme egress sans passerelle controlee."
+    elif not proxies:
+        conclusion = "Aucun proxy SerdiPay n'est configure; les appels sortent avec l'egress Railway courant."
+    else:
+        conclusion = "Le proxy configure ne sort pas avec l'IP attendue ou n'est pas joignable."
+
+    return {
+        "public_domain": settings.badiboss_public_domain,
+        "callback_url": f"https://{settings.badiboss_public_domain}/serdipay/callback",
+        "public_domain_dns": public_dns,
+        "proxy_configured": bool(proxies),
+        "proxy": proxy,
+        "expected_outbound_ip": settings.serdipay_expected_outbound_ip,
+        "railway_direct_egress": direct_egress,
+        "proxy_egress": proxy_egress,
+        "serdipay_token_direct": _safe_token_test(),
+        "serdipay_token_via_proxy": _safe_token_test(proxies) if proxies else None,
+        "conclusion": conclusion,
+    }
+
+
+def get_token() -> dict:
+    payload = _token_payload()
     response = _serdipay_request("POST", TOKEN_URL, json=payload, timeout=20)
     data = {}
     try:

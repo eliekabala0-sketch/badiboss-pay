@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     admin_email: str = "admin@badibosspay.com"
     admin_password: str = "admin12345"
+    admin_force_password_reset: bool = False
     admin_full_name: str = "Badiboss Admin"
 
     serdipay_api_id: Optional[str] = None

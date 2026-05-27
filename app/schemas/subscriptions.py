@@ -7,7 +7,7 @@ class SubscriptionPayRequest(BaseModel):
     company_id: str
     app_id: str
     plan: str = Field(pattern="^(monthly|quarterly|yearly|trial)$")
-    amount: float = Field(gt=0)
+    amount: float = Field(ge=0)
     start_date: datetime
     end_date: datetime
 

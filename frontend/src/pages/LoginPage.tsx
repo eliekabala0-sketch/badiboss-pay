@@ -7,7 +7,7 @@ import { saveToken } from "../auth";
 function LoginPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState("admin@badibosspay.com");
-  const [password, setPassword] = useState("admin12345");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -20,7 +20,7 @@ function LoginPage() {
       saveToken(loginResponse.data.access_token);
       navigate("/", { replace: true });
     } catch {
-      setError("Echec de connexion. Verifiez vos identifiants admin.");
+      setError("Échec de connexion. Vérifiez vos identifiants administrateur.");
     } finally {
       setLoading(false);
     }
@@ -28,12 +28,13 @@ function LoginPage() {
 
   return (
     <div className="mx-auto mt-20 max-w-md rounded bg-white p-6 shadow">
-      <h2 className="mb-4 text-xl font-semibold">Connexion Admin</h2>
+      <h2 className="mb-2 text-xl font-semibold">Connexion administrateur</h2>
+      <p className="mb-4 text-sm text-slate-600">Utilisez l'adresse et le mot de passe configurés dans Railway ou changés depuis le profil.</p>
       <form className="space-y-4" onSubmit={handleSubmit}>
         <input
           className="w-full rounded border border-slate-300 px-3 py-2"
           type="email"
-          placeholder="Email"
+          placeholder="Adresse e-mail"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           required
@@ -52,7 +53,7 @@ function LoginPage() {
           className="w-full rounded bg-blue-600 px-3 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-60"
           disabled={loading}
         >
-          {loading ? "Connexion..." : "Se connecter"}
+          {loading ? "Connexion en cours..." : "Se connecter"}
         </button>
       </form>
     </div>

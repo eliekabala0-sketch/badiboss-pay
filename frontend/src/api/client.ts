@@ -7,6 +7,19 @@ export const apiClient = axios.create({
   timeout: 12000,
 });
 
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem("bbp_admin_token");
+      if (!window.location.pathname.endsWith("/login")) {
+        window.location.href = `${import.meta.env.VITE_BASE_PATH ?? "/"}login`;
+      }
+    }
+    return Promise.reject(error);
+  },
+);
+
 export function setAuthToken(token: string | null) {
   if (!token) {
     delete apiClient.defaults.headers.common.Authorization;

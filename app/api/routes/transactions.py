@@ -1,5 +1,6 @@
 import csv
 import io
+from datetime import date, datetime, time, timezone
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -20,6 +21,8 @@ def list_transactions(
     user_id: Optional[str] = Query(default=None),
     phone: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
+    date_from: Optional[date] = Query(default=None),
+    date_to: Optional[date] = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -43,7 +46,12 @@ def list_transactions(
             | (Transaction.user_id.ilike(like_value))
             | (Transaction.payer_phone.ilike(like_value))
             | (Transaction.app_id.ilike(like_value))
+            | (Transaction.company_id.ilike(like_value))
         )
+    if date_from:
+        query = query.filter(Transaction.created_at >= datetime.combine(date_from, time.min, tzinfo=timezone.utc))
+    if date_to:
+        query = query.filter(Transaction.created_at <= datetime.combine(date_to, time.max, tzinfo=timezone.utc))
 
     total = query.count()
     items = (
@@ -59,6 +67,11 @@ def list_transactions(
 def export_transactions_csv(
     app_id: Optional[str] = Query(default=None),
     company_id: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    phone: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    date_from: Optional[date] = Query(default=None),
+    date_to: Optional[date] = Query(default=None),
     db: Session = Depends(get_db),
     _=Depends(require_roles(AdminRole.SUPER_ADMIN, AdminRole.FINANCE_ADMIN)),
 ):
@@ -67,6 +80,23 @@ def export_transactions_csv(
         query = query.filter(Transaction.app_id == app_id)
     if company_id:
         query = query.filter(Transaction.company_id == company_id)
+    if status:
+        query = query.filter(Transaction.status == status)
+    if phone:
+        query = query.filter(Transaction.payer_phone == phone)
+    if search:
+        like_value = f"%{search}%"
+        query = query.filter(
+            (Transaction.reference.ilike(like_value))
+            | (Transaction.user_id.ilike(like_value))
+            | (Transaction.payer_phone.ilike(like_value))
+            | (Transaction.app_id.ilike(like_value))
+            | (Transaction.company_id.ilike(like_value))
+        )
+    if date_from:
+        query = query.filter(Transaction.created_at >= datetime.combine(date_from, time.min, tzinfo=timezone.utc))
+    if date_to:
+        query = query.filter(Transaction.created_at <= datetime.combine(date_to, time.max, tzinfo=timezone.utc))
     rows = query.order_by(Transaction.created_at.desc()).limit(5000).all()
 
     output = io.StringIO()
@@ -85,6 +115,13 @@ def export_transactions_csv(
             "fees",
             "commission",
             "net_amount",
+            "public_ip",
+            "country",
+            "city",
+            "device",
+            "operating_system",
+            "browser",
+            "source_application",
             "created_at",
         ]
     )
@@ -103,6 +140,13 @@ def export_transactions_csv(
                 row.fees,
                 row.commission,
                 row.net_amount,
+                row.public_ip or "",
+                row.country or "",
+                row.city or "",
+                row.device or "",
+                row.operating_system or "",
+                row.browser or "",
+                row.source_application or "",
                 row.created_at.isoformat(),
             ]
         )

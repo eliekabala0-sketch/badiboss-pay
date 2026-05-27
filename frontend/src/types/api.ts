@@ -1,13 +1,20 @@
 export type DashboardStats = {
   total_apps: number;
   total_transactions: number;
+  total_collected: number;
+  total_provider_fees: number;
   total_commissions: number;
+  merchant_net: number;
+  merchant_available_balance: number;
   revenue_today: number;
   revenue_month: number;
   active_subscriptions: number;
   wallets_merchants: number;
   settlements_pending: number;
+  settlements_done: number;
+  settlement_errors: number;
   withdrawals: number;
+  withdrawals_pending: number;
   api_webhook_errors: number;
   realtime_activity: number;
 };
@@ -45,6 +52,14 @@ export type Transaction = {
   commission: number;
   net_amount: number;
   payment_method?: string;
+  public_ip?: string;
+  country?: string;
+  city?: string;
+  device?: string;
+  browser?: string;
+  operating_system?: string;
+  device_type?: string;
+  source_application?: string;
   created_at: string;
 };
 
@@ -66,4 +81,11 @@ export type Subscription = {
   active: boolean;
   expired: boolean;
   created_at: string;
+};
+
+export type CompanySummary = {
+  company_id: string;
+  applications: number;
+  transactions: number;
+  subscriptions: number;
 };

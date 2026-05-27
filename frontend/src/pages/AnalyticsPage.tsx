@@ -23,34 +23,40 @@ type AnalyticsPayload = {
 
 function AnalyticsPage() {
   const [data, setData] = useState<AnalyticsPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    apiClient.get<AnalyticsPayload>("/analytics").then((response) => setData(response.data));
+    apiClient
+      .get<AnalyticsPayload>("/analytics")
+      .then((response) => setData(response.data))
+      .catch(() => setError("Impossible de charger les analytics utilisateurs."));
   }, []);
 
   return (
     <section>
-      <h2 className="text-2xl font-semibold">Geolocalisation / IP Analytics</h2>
+      <h2 className="text-2xl font-semibold">Utilisateurs & analytics</h2>
+      <p className="text-sm text-slate-600">Pays, villes, IP, appareils, systèmes, navigateurs et sources d'application.</p>
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
       <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
         <SimpleList title="Utilisateurs par pays" items={(data?.transactions_by_country ?? []).map((entry) => `${entry.country}: ${entry.transactions}`)} />
         <SimpleList title="Utilisateurs par ville" items={(data?.transactions_by_city ?? []).map((entry) => `${entry.city}: ${entry.transactions}`)} />
         <SimpleList title="Utilisateurs par application" items={(data?.users_by_application ?? []).map((entry) => `${entry.app_id}: ${entry.transactions}`)} />
-        <SimpleList title="Types appareils" items={(data?.device_types ?? []).map((entry) => `${entry.device_type}: ${entry.transactions}`)} />
-        <SimpleList title="Android / iPhone / Desktop" items={(data?.platforms ?? []).map((entry) => `${entry.platform}: ${entry.transactions}`)} />
+        <SimpleList title="Utilisateurs par appareil" items={(data?.device_types ?? []).map((entry) => `${entry.device_type}: ${entry.transactions}`)} />
+        <SimpleList title="Systèmes d'exploitation" items={(data?.platforms ?? []).map((entry) => `${platformLabel(entry.platform)}: ${entry.transactions}`)} />
       </div>
       <div className="mt-4 rounded bg-white p-3 shadow-sm">
-        <h3 className="mb-2 font-semibold">Activite recente (IP / device / navigateur)</h3>
+        <h3 className="mb-2 font-semibold">Activité récente</h3>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[920px] text-left text-sm">
             <thead>
               <tr className="border-b">
                 <th className="py-2">IP</th>
                 <th className="py-2">Pays</th>
                 <th className="py-2">Ville</th>
-                <th className="py-2">App</th>
-                <th className="py-2">Device</th>
-                <th className="py-2">OS</th>
-                <th className="py-2">Browser</th>
+                <th className="py-2">Application</th>
+                <th className="py-2">Appareil</th>
+                <th className="py-2">Système</th>
+                <th className="py-2">Navigateur</th>
                 <th className="py-2">Marque</th>
                 <th className="py-2">Source</th>
               </tr>
@@ -69,6 +75,11 @@ function AnalyticsPage() {
                   <td className="py-2">{entry.source_application ?? "-"}</td>
                 </tr>
               ))}
+              {(data?.recent_activity ?? []).length === 0 && (
+                <tr>
+                  <td className="py-6 text-center text-slate-500" colSpan={9}>Aucune activité utilisateur.</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -91,3 +102,7 @@ function SimpleList({ title, items }: { title: string; items: string[] }) {
 }
 
 export default AnalyticsPage;
+
+function platformLabel(value: string) {
+  return value === "Desktop" ? "Ordinateur" : value;
+}

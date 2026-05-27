@@ -9,6 +9,12 @@ from app.models.admin import AdminUser
 def seed_default_admin(db: Session) -> None:
     existing = db.query(AdminUser).filter(AdminUser.email == settings.admin_email).first()
     if existing:
+        existing.full_name = settings.admin_full_name
+        existing.role = AdminRole.SUPER_ADMIN.value
+        existing.is_active = True
+        if settings.admin_force_password_reset:
+            existing.hashed_password = get_password_hash(settings.admin_password)
+        db.commit()
         return
 
     admin = AdminUser(

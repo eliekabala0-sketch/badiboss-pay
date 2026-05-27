@@ -1,6 +1,6 @@
 [build]
-builder = "NIXPACKS"
-buildCommand = "bash scripts/railway-build.sh"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "uvicorn main:app --host 0.0.0.0 --port $PORT"

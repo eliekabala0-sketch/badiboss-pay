@@ -3,10 +3,11 @@ NIXPACKS_NODE_VERSION = "20"
 NIXPACKS_PYTHON_VERSION = "3.11"
 
 [phases.setup]
-nixPkgs = ["nodejs_20", "bash"]
+nixPkgs = ["nodejs_20", "bash", "python3"]
 
 [phases.install]
 cmds = [
+  "python3 --version",
   "bash scripts/railway-build.sh"
 ]
 

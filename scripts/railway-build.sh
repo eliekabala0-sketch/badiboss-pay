@@ -8,7 +8,8 @@ echo "[railway-build] ROOT_DIR=$ROOT_DIR"
 echo "[railway-build] pwd=$(pwd)"
 ls -la
 
-python -m pip install --upgrade pip
+python3 --version
+python3 -m pip install --upgrade pip
 pip install -r requirements.txt
 
 echo "[railway-build] Building frontend dashboard..."

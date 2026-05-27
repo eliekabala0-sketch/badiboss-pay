@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -31,6 +32,23 @@ frontend_assets = frontend_dist / "assets"
 
 if frontend_assets.exists():
     app.mount("/admin/assets", StaticFiles(directory=frontend_assets), name="admin-assets")
+
+
+def _database_configured() -> bool:
+    return bool(settings.database_public_url or settings.database_url != "sqlite:///./badiboss_pay.db")
+
+
+def _print_startup_diag(startup_ok: bool) -> None:
+    lines = [
+        f"[startup-diag] cwd={Path.cwd()}",
+        f"[startup-diag] frontend_path={frontend_dist}",
+        f"[startup-diag] index_exists={'yes' if frontend_index.exists() else 'no'}",
+        f"[startup-diag] PORT={os.getenv('PORT') or 'not-set'}",
+        f"[startup-diag] startup_ok={'yes' if startup_ok else 'no'}",
+        f"[startup-diag] database_configured={'yes' if _database_configured() else 'no'}",
+    ]
+    for line in lines:
+        print(line, flush=True)
 
 
 def _frontend_unavailable_response():
@@ -69,6 +87,7 @@ def admin_spa_path(path: str):
 
 @app.on_event("startup")
 def on_startup():
+    _print_startup_diag(startup_ok=False)
     log_frontend_runtime_state()
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
@@ -76,3 +95,4 @@ def on_startup():
         seed_default_admin(db)
     finally:
         db.close()
+    _print_startup_diag(startup_ok=True)

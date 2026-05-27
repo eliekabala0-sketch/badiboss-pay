@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
-from app.core.config import settings
+from app.core.config import get_database_url, settings
 from app.db.base import Base
 from app.db.init_db import seed_default_admin
 from app.db.session import SessionLocal, engine
@@ -35,7 +35,16 @@ if frontend_assets.exists():
 
 
 def _database_configured() -> bool:
-    return bool(settings.database_public_url or settings.database_url != "sqlite:///./badiboss_pay.db")
+    return not get_database_url().startswith("sqlite")
+
+
+def _database_backend() -> str:
+    database_url = get_database_url()
+    if database_url.startswith("sqlite"):
+        return "sqlite"
+    if database_url.startswith(("postgresql", "postgres")):
+        return "postgresql"
+    return "configured"
 
 
 def _print_startup_diag(startup_ok: bool) -> None:
@@ -64,7 +73,10 @@ def _frontend_unavailable_response():
 
 @app.get("/admin/runtime-diag")
 def admin_runtime_diag():
-    return get_frontend_runtime_state()
+    state = get_frontend_runtime_state()
+    state["database_configured"] = _database_configured()
+    state["database_backend"] = _database_backend()
+    return state
 
 
 @app.get("/admin")

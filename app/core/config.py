@@ -1,6 +1,8 @@
+import os
 from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import URL
 
 
 class Settings(BaseSettings):
@@ -36,5 +38,30 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+def _postgres_url_from_env() -> Optional[str]:
+    host = os.getenv("PGHOST") or os.getenv("POSTGRES_HOST")
+    port = os.getenv("PGPORT") or os.getenv("POSTGRES_PORT")
+    database = os.getenv("PGDATABASE") or os.getenv("POSTGRES_DB") or os.getenv("POSTGRES_DATABASE")
+    username = os.getenv("PGUSER") or os.getenv("POSTGRES_USER")
+    password = os.getenv("PGPASSWORD") or os.getenv("POSTGRES_PASSWORD")
+
+    if not all([host, database, username, password]):
+        return None
+
+    return URL.create(
+        "postgresql+psycopg2",
+        username=username,
+        password=password,
+        host=host,
+        port=int(port) if port else None,
+        database=database,
+    ).render_as_string(hide_password=False)
+
+
 def get_database_url() -> str:
-    return settings.database_public_url or settings.database_url
+    default_sqlite_url = "sqlite:///./badiboss_pay.db"
+    if settings.database_public_url:
+        return settings.database_public_url
+    if settings.database_url != default_sqlite_url:
+        return settings.database_url
+    return _postgres_url_from_env() or settings.database_url

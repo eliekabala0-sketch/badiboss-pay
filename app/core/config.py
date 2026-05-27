@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     serdipay_api_password: Optional[str] = None
     serdipay_merchant_code: Optional[str] = None
     serdipay_pin: Optional[str] = None
+    serdipay_outbound_proxy_url: Optional[str] = None
+    serdipay_expected_outbound_ip: str = "66.33.22.87"
+    serdipay_egress_check_url: str = "https://api.ipify.org?format=json"
 
     client_callback_timeout_seconds: int = 8
     geoip_lookup_enabled: bool = True

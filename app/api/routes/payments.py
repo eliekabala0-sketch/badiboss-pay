@@ -2,12 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.api.deps import require_roles
+from app.core.roles import AdminRole
 from app.models.commission import Commission
 from app.models.connected_app import ConnectedApp
 from app.models.transaction import Transaction
 from app.schemas.transactions import PaymentCreateRequest, PaymentStatusRequest
 from app.services.commission_service import compute_commission_and_net
-from app.services.serdipay_service import create_payment, get_token
+from app.services.serdipay_service import create_payment, get_egress_diagnostic, get_token
 from app.services.tracking_service import collect_tracking_data
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
@@ -112,3 +114,8 @@ def payment_status(payload: PaymentStatusRequest, db: Session = Depends(get_db))
 @router.post("/test-token")
 def test_token():
     return get_token()
+
+
+@router.get("/serdipay/egress")
+def serdipay_egress(_=Depends(require_roles(AdminRole.SUPER_ADMIN, AdminRole.SUPPORT_ADMIN))):
+    return get_egress_diagnostic()

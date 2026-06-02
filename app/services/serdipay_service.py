@@ -1,6 +1,6 @@
-import uuid
 import os
 import socket
+import uuid
 from typing import Any
 from urllib.parse import urlparse
 
@@ -84,6 +84,7 @@ def _proxy_summary(proxies: dict[str, str] | None) -> dict:
 
 
 TOKEN_KEYS = ("token", "access_token", "accessToken")
+OFFICIAL_SERDIPAY_EMAIL = "eliekabala0@gmail.com"
 SERDIPAY_VARIABLES = (
     "SERDIPAY_EMAIL",
     "SERDIPAY_PHONE",
@@ -166,164 +167,38 @@ def _variables_detected() -> dict[str, dict[str, Any]]:
     return detected
 
 
-def _serdipay_login_email() -> str | None:
-    return settings.serdipay_email or settings.serdipay_api_id
+def _looks_like_email(value: str | None) -> bool:
+    return bool(value and "@" in value and "." in value)
 
 
-def _serdipay_login_password() -> str | None:
-    return settings.serdipay_password or settings.serdipay_api_password
+def _serdipay_token_email() -> str:
+    if _looks_like_email(settings.serdipay_email):
+        return str(settings.serdipay_email)
+    return OFFICIAL_SERDIPAY_EMAIL
 
 
-def _serdipay_login_phone() -> str | None:
-    return settings.serdipay_phone or settings.serdipay_api_id
+def _serdipay_token_password() -> str | None:
+    if settings.serdipay_password and str(settings.serdipay_password).startswith("$2y$"):
+        return settings.serdipay_password
+    return settings.serdipay_api_password or settings.serdipay_password
 
 
-def _serdipay_api_key() -> str | None:
-    return settings.serdipay_api_key or settings.serdipay_api_password
+def _official_token_payload() -> dict[str, Any]:
+    return {
+        "email": _serdipay_token_email(),
+        "password": _serdipay_token_password(),
+    }
 
 
 def _token_payload_variants() -> list[dict[str, Any]]:
-    email_value = _serdipay_login_email()
-    phone_value = _serdipay_login_phone()
-    password_value = _serdipay_login_password()
-    api_key_value = _serdipay_api_key()
-    variants = [
-        {
-            "name": "A_email_password",
-            "payload": {
-                "email": email_value,
-                "password": password_value,
-            },
-        },
-        {
-            "name": "B_phone_password",
-            "payload": {
-                "phone": phone_value,
-                "password": password_value,
-            },
-        },
-        {
-            "name": "C_telephone_password",
-            "payload": {
-                "telephone": phone_value,
-                "password": password_value,
-            },
-        },
-        {
-            "name": "D_username_password",
-            "payload": {
-                "username": phone_value,
-                "password": password_value,
-            },
-        },
-        {
-            "name": "E_login_password",
-            "payload": {
-                "login": phone_value,
-                "password": password_value,
-            },
-        },
-        {
-            "name": "F_email_phone_password",
-            "payload": {
-                "email": phone_value,
-                "password": password_value,
-            },
-        },
-        {
-            "name": "G_merchant_email_password",
-            "payload": {
-                "email": email_value,
-                "password": password_value,
-                "merchantCode": settings.serdipay_merchant_code,
-            },
-        },
-        {
-            "name": "H_merchant_phone_password",
-            "payload": {
-                "phone": phone_value,
-                "password": password_value,
-                "merchantCode": settings.serdipay_merchant_code,
-            },
-        },
-        {
-            "name": "I_apiId_apiPassword_merchantCode",
-            "payload": {
-                "apiId": settings.serdipay_api_id,
-                "apiPassword": settings.serdipay_api_password,
-                "merchantCode": settings.serdipay_merchant_code,
-            },
-        },
-        {
-            "name": "J_API_ID_API_KEY_merchantCode",
-            "payload": {
-                "API_ID": settings.serdipay_api_id,
-                "API_KEY": api_key_value,
-                "merchantCode": settings.serdipay_merchant_code,
-            },
-        },
-        {
-            "name": "K_api_id_api_key_merchant_code",
-            "payload": {
-                "api_id": settings.serdipay_api_id,
-                "api_key": api_key_value,
-                "merchant_code": settings.serdipay_merchant_code,
-            },
-        },
-        {
-            "name": "L_username_password_merchantCode",
-            "payload": {
-                "username": phone_value,
-                "password": password_value,
-                "merchantCode": settings.serdipay_merchant_code,
-            },
-        },
-        {
-            "name": "M_phone_password_pin_merchantCode",
-            "payload": {
-                "phone": phone_value,
-                "password": password_value,
-                "pin": settings.serdipay_pin,
-                "merchantCode": settings.serdipay_merchant_code,
-            },
-        },
-    ]
-    return [{"name": variant["name"], "payload": _clean_payload(variant["payload"])} for variant in variants]
+    return [{"name": "official_email_password_json", "payload": _clean_payload(_official_token_payload())}]
 
 
-def _header_profiles() -> list[dict[str, Any]]:
-    base = {"Accept": "application/json"}
-    merchant_headers = dict(base)
-    if settings.serdipay_api_id:
-        merchant_headers["X-API-ID"] = settings.serdipay_api_id
-    if _serdipay_api_key():
-        merchant_headers["X-API-KEY"] = _serdipay_api_key()
-    if settings.serdipay_merchant_code:
-        merchant_headers["Merchant-Code"] = settings.serdipay_merchant_code
-    return [
-        {"name": "accept_json", "headers": base},
-        {"name": "merchant_headers", "headers": merchant_headers},
-    ]
-
-
-def _request_modes() -> list[dict[str, str]]:
-    return [
-        {"name": "json", "content_type": "application/json"},
-        {"name": "urlencoded", "content_type": "application/x-www-form-urlencoded"},
-        {"name": "form_data", "content_type": "multipart/form-data"},
-    ]
-
-
-def _send_token_request(payload: dict, mode: str, headers: dict[str, str], proxies: dict[str, str] | None = None) -> requests.Response:
-    kwargs: dict[str, Any] = {"headers": headers, "timeout": 20}
+def _send_token_request(payload: dict, proxies: dict[str, str] | None = None) -> requests.Response:
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    kwargs: dict[str, Any] = {"headers": headers, "json": payload, "timeout": 20}
     if proxies:
         kwargs["proxies"] = proxies
-    if mode == "form_data":
-        kwargs["files"] = {key: (None, str(value)) for key, value in payload.items()}
-    elif mode == "urlencoded":
-        kwargs["data"] = payload
-    else:
-        kwargs["json"] = payload
     return requests.post(TOKEN_URL, **kwargs)
 
 
@@ -370,7 +245,6 @@ def _safe_token_test(proxies: dict[str, str] | None = None) -> dict:
         "endpoint": result.get("endpoint"),
         "status_code": result.get("status_code"),
         "variant": result.get("variant"),
-        "mode": result.get("mode"),
         "content_type_used": result.get("content_type_used"),
         "payload_keys_sent": result.get("payload_keys_sent"),
         "token_present": result.get("token_present"),
@@ -389,43 +263,26 @@ def _response_errors(result: dict[str, Any]) -> dict[str, Any]:
 
 def _token_failure_conclusion(attempts: list[dict[str, Any]]) -> str:
     if not attempts:
-        return "Aucune variante token n'a pu etre testee."
+        return "Le test token officiel n'a pas pu etre execute."
 
     variable_map = _variables_detected()
-    configured_email = variable_map["SERDIPAY_EMAIL"]
-    if configured_email["present"] and configured_email["format_detected"] != "email_like":
-        return "SERDIPAY_EMAIL est configure mais n'est pas une adresse email. L'endpoint API marchand /merchant/get-token exige email/password; le telephone du dashboard mobile n'est pas accepte comme identifiant API."
+    token_email = _serdipay_token_email()
+    configured_password = _serdipay_token_password()
+    if not _looks_like_email(token_email):
+        return "SERDIPAY_EMAIL n'est pas une adresse email valide; l'endpoint officiel exige email/password en JSON."
+    if not configured_password:
+        return "SERDIPAY_PASSWORD ou SERDIPAY_API_PASSWORD est absent; l'endpoint officiel exige email/password en JSON."
 
     missing = [name for name, meta in variable_map.items() if name in ("SERDIPAY_PASSWORD", "SERDIPAY_API_PASSWORD", "SERDIPAY_MERCHANT_CODE", "SERDIPAY_PIN") and not meta["present"]]
     if missing:
         return f"Variables SerdiPay sensibles absentes ou vides: {', '.join(missing)}."
 
-    accepted_field_variants = [
-        attempt
-        for attempt in attempts
-        if attempt.get("status_code") in (401, 403)
-        or (isinstance(attempt.get("response"), dict) and not attempt["response"].get("errors"))
-    ]
-    if accepted_field_variants:
-        names = sorted({attempt.get("variant") for attempt in accepted_field_variants if attempt.get("variant")})
-        return f"Le format semble accepte pour {', '.join(names)} mais les identifiants/API secrets sont refuses ou incomplets."
-
-    email_validation = any("validation.email" in str(_response_errors(attempt).get("email")) for attempt in attempts)
-    email_required = any("validation.required" in str(_response_errors(attempt).get("email")) for attempt in attempts)
-    password_required = any("validation.required" in str(_response_errors(attempt).get("password")) for attempt in attempts)
-    phone_variants_required_email = any(
-        attempt.get("variant") in ("B_phone_password", "C_telephone_password", "D_username_password", "E_login_password", "H_merchant_phone_password", "L_username_password_merchantCode", "M_phone_password_pin_merchantCode")
-        and "validation.required" in str(_response_errors(attempt).get("email"))
-        for attempt in attempts
-    )
-
-    if phone_variants_required_email and email_validation:
-        return "L'endpoint API marchand /merchant/get-token exige un champ email valide; le login telephone du dashboard mobile ne correspond probablement pas a cet endpoint API."
-    if email_validation:
-        return "Le champ email est reconnu, mais la valeur configuree n'est pas une adresse email valide pour SerdiPay."
-    if email_required and password_required:
-        return "SerdiPay continue d'exiger email/password; les variantes API_ID/API_KEY/telephone ne sont pas reconnues par cet endpoint."
-    return "Aucune variante n'obtient de token; il faut que SerdiPay fournisse l'identifiant API marchand exact et le type de secret attendu pour /merchant/get-token."
+    last = attempts[-1]
+    if last.get("status_code") == 401:
+        return "Le format officiel email/password JSON est correct, mais SerdiPay refuse les credentials fournis pour merchant/get-token."
+    if last.get("status_code") == 400:
+        return "SerdiPay retourne une validation 400 avec le payload officiel email/password JSON; verifier que SERDIPAY_EMAIL et SERDIPAY_PASSWORD correspondent exactement aux credentials API marchand."
+    return "Le token n'est pas obtenu avec la methode officielle documentee; verifier les credentials API marchand fournis par SerdiPay."
 
 
 def get_egress_diagnostic() -> dict:
@@ -475,58 +332,45 @@ def get_token(
         return [{key: value for key, value in attempt.items() if key != "variables_detected"} for attempt in attempts]
 
     for variant in _token_payload_variants():
-        for mode_profile in _request_modes():
-            for header_profile in _header_profiles():
-                payload = variant["payload"]
-                mode = mode_profile["name"]
-                headers = header_profile["headers"]
-                try:
-                    response = _send_token_request(payload, mode, headers=headers, proxies=request_proxies)
-                    data = _parse_response(response)
-                    token = _extract_token(data) if isinstance(data, dict) else None
-                    result = {
-                        "endpoint": TOKEN_URL,
-                        "variant": variant["name"],
-                        "mode": mode,
-                        "content_type_used": mode_profile["content_type"],
-                        "header_profile": header_profile["name"],
-                        "headers_sent": sorted(headers.keys()),
-                        "status_code": response.status_code,
-                        "payload_keys_sent": sorted(payload.keys()),
-                        "token_present": bool(token),
-                        "response": _sanitize_response(data) if sanitize and isinstance(data, dict) else data,
-                        "variables_detected": _variables_detected(),
-                        "error": None,
-                    }
-                except Exception as exc:
-                    result = {
-                        "endpoint": TOKEN_URL,
-                        "variant": variant["name"],
-                        "mode": mode,
-                        "content_type_used": mode_profile["content_type"],
-                        "header_profile": header_profile["name"],
-                        "headers_sent": sorted(headers.keys()),
-                        "status_code": None,
-                        "payload_keys_sent": sorted(payload.keys()),
-                        "token_present": False,
-                        "response": {},
-                        "variables_detected": _variables_detected(),
-                        "error": exc.__class__.__name__,
-                    }
+        payload = variant["payload"]
+        try:
+            response = _send_token_request(payload, proxies=request_proxies)
+            data = _parse_response(response)
+            token = _extract_token(data) if isinstance(data, dict) else None
+            result = {
+                "endpoint": TOKEN_URL,
+                "variant": variant["name"],
+                "content_type_used": "application/json",
+                "payload_keys_sent": sorted(payload.keys()),
+                "status_code": response.status_code,
+                "token_present": bool(token),
+                "response": _sanitize_response(data) if sanitize and isinstance(data, dict) else data,
+                "error": None,
+            }
+        except Exception as exc:
+            result = {
+                "endpoint": TOKEN_URL,
+                "variant": variant["name"],
+                "content_type_used": "application/json",
+                "payload_keys_sent": sorted(payload.keys()),
+                "status_code": None,
+                "token_present": False,
+                "response": {},
+                "error": exc.__class__.__name__,
+            }
 
-                attempts.append(result)
-                last_result = result
-                if result["token_present"]:
-                    result["conclusion_probable"] = "Token SerdiPay obtenu avec cette variante; elle doit devenir la methode officielle du connecteur."
-                    if include_attempts:
-                        result["attempts"] = attempt_summaries()
-                    return result
+        attempts.append(result)
+        last_result = result
+        if result["token_present"]:
+            if include_attempts:
+                result["attempts"] = attempt_summaries()
+            return result
 
     if last_result is None:
-        last_result = {"endpoint": TOKEN_URL, "status_code": None, "response": {}, "token_present": False, "variables_detected": _variables_detected(), "error": "NoTokenVariants"}
-    last_result["conclusion_probable"] = _token_failure_conclusion(attempts)
+        last_result = {"endpoint": TOKEN_URL, "status_code": None, "response": {}, "token_present": False, "error": "NoTokenVariants"}
     if include_attempts:
         last_result["attempts"] = attempt_summaries()
+        last_result["conclusion_probable"] = _token_failure_conclusion(attempts)
     return last_result
 
 
@@ -555,7 +399,7 @@ def create_payment(phone: str, amount: float, currency: str = "CDF", telecom: st
         "currency": currency,
         "telecom": telecom,
     }
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {access_token}"}
+    headers = {"Content-Type": "application/json", "Accept": "application/json", "Authorization": f"Bearer {access_token}"}
     response = _serdipay_request("POST", PAYMENT_URL, json=payload, headers=headers, timeout=25)
     try:
         response_payload = response.json()

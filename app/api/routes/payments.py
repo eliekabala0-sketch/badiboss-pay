@@ -113,7 +113,7 @@ def payment_status(payload: PaymentStatusRequest, db: Session = Depends(get_db))
 
 @router.post("/test-token")
 def test_token():
-    return get_token(sanitize=True, include_attempts=True)
+    return get_token(sanitize=True)
 
 
 @router.get("/serdipay/egress")

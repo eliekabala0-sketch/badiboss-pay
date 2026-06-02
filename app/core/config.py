@@ -21,6 +21,8 @@ class Settings(BaseSettings):
 
     serdipay_api_id: Optional[str] = None
     serdipay_api_password: Optional[str] = None
+    serdipay_email: Optional[str] = None
+    serdipay_password: Optional[str] = None
     serdipay_merchant_code: Optional[str] = None
     serdipay_pin: Optional[str] = None
     serdipay_outbound_proxy_url: Optional[str] = None

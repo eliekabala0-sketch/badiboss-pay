@@ -80,44 +80,140 @@ def _proxy_summary(proxies: dict[str, str] | None) -> dict:
     return {"configured": True, "host": host, "port": port, "tcp_reachable": reachable}
 
 
-def _token_payload() -> dict:
-    return {
-        "api_id": settings.serdipay_api_id,
-        "api_password": settings.serdipay_api_password,
-        "merchantCode": settings.serdipay_merchant_code,
-    }
+TOKEN_KEYS = ("token", "access_token", "accessToken")
+SECRET_KEYS = {
+    "api_id",
+    "apiId",
+    "api_key",
+    "apiKey",
+    "api_password",
+    "apiPassword",
+    "password",
+    "pin",
+    "merchant_pin",
+    "secret",
+    "secret_key",
+    "secretKey",
+}
+
+
+def _serdipay_login_email() -> str | None:
+    return settings.serdipay_email or settings.serdipay_api_id
+
+
+def _serdipay_login_password() -> str | None:
+    return settings.serdipay_password or settings.serdipay_api_password
+
+
+def _token_payload_variants() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": "email_password_json",
+            "mode": "json",
+            "payload": {
+                "email": _serdipay_login_email(),
+                "password": _serdipay_login_password(),
+            },
+        },
+        {
+            "name": "email_password_merchant_json",
+            "mode": "json",
+            "payload": {
+                "email": _serdipay_login_email(),
+                "password": _serdipay_login_password(),
+                "merchantCode": settings.serdipay_merchant_code,
+            },
+        },
+        {
+            "name": "email_password_form",
+            "mode": "form",
+            "payload": {
+                "email": _serdipay_login_email(),
+                "password": _serdipay_login_password(),
+            },
+        },
+        {
+            "name": "api_id_api_password_merchant_json",
+            "mode": "json",
+            "payload": {
+                "api_id": settings.serdipay_api_id,
+                "api_password": settings.serdipay_api_password,
+                "merchantCode": settings.serdipay_merchant_code,
+            },
+        },
+        {
+            "name": "apiId_apiPassword_merchant_json",
+            "mode": "json",
+            "payload": {
+                "apiId": settings.serdipay_api_id,
+                "apiPassword": settings.serdipay_api_password,
+                "merchantCode": settings.serdipay_merchant_code,
+            },
+        },
+    ]
+
+
+def _send_token_request(payload: dict, mode: str, proxies: dict[str, str] | None = None) -> requests.Response:
+    kwargs: dict[str, Any] = {"timeout": 20}
+    if proxies:
+        kwargs["proxies"] = proxies
+    if mode == "form":
+        kwargs["data"] = payload
+    else:
+        kwargs["json"] = payload
+    return requests.post(TOKEN_URL, **kwargs)
+
+
+def _parse_response(response: requests.Response) -> dict:
+    try:
+        return response.json()
+    except ValueError:
+        return {"raw_response": response.text}
+
+
+def _extract_token(payload: dict) -> str | None:
+    for key in TOKEN_KEYS:
+        value = payload.get(key)
+        if value:
+            return value
+    for value in payload.values():
+        if isinstance(value, dict):
+            token = _extract_token(value)
+            if token:
+                return token
+    return None
+
+
+def _sanitize_response(payload: dict) -> dict:
+    sanitized: dict[str, Any] = {}
+    for key, value in payload.items():
+        if key in TOKEN_KEYS:
+            sanitized[key] = "***TOKEN_MASKED***"
+        elif key in SECRET_KEYS:
+            sanitized[key] = "***SECRET_MASKED***"
+        elif isinstance(value, dict):
+            sanitized[key] = _sanitize_response(value)
+        elif isinstance(value, list):
+            sanitized[key] = [_sanitize_response(item) if isinstance(item, dict) else item for item in value]
+        else:
+            sanitized[key] = value
+    return sanitized
 
 
 def _safe_token_test(proxies: dict[str, str] | None = None) -> dict:
-    try:
-        kwargs: dict[str, Any] = {"json": _token_payload(), "timeout": 20}
-        if proxies:
-            kwargs["proxies"] = proxies
-        response = requests.post(TOKEN_URL, **kwargs)
-        try:
-            payload = response.json()
-            response_keys = sorted(payload.keys()) if isinstance(payload, dict) else []
-            token_present = any(key in payload for key in ("token", "access_token", "accessToken")) if isinstance(payload, dict) else False
-            message = payload.get("message") or payload.get("detail") if isinstance(payload, dict) else None
-        except ValueError:
-            response_keys = []
-            token_present = False
-            message = response.text[:160]
-        return {
-            "status_code": response.status_code,
-            "token_present": token_present,
-            "response_keys": response_keys,
-            "message": message,
-            "error": None,
-        }
-    except Exception as exc:
-        return {
-            "status_code": None,
-            "token_present": False,
-            "response_keys": [],
-            "message": None,
-            "error": exc.__class__.__name__,
-        }
+    result = get_token(sanitize=True, include_attempts=False, proxies=proxies, use_configured_proxy=False)
+    response = result.get("response", {})
+    return {
+        "endpoint": result.get("endpoint"),
+        "status_code": result.get("status_code"),
+        "variant": result.get("variant"),
+        "mode": result.get("mode"),
+        "payload_keys_sent": result.get("payload_keys_sent"),
+        "token_present": result.get("token_present"),
+        "response_keys": sorted(response.keys()) if isinstance(response, dict) else [],
+        "message": response.get("message") if isinstance(response, dict) else None,
+        "error": result.get("error"),
+    }
 
 
 def get_egress_diagnostic() -> dict:
@@ -153,26 +249,77 @@ def get_egress_diagnostic() -> dict:
     }
 
 
-def get_token() -> dict:
-    payload = _token_payload()
-    response = _serdipay_request("POST", TOKEN_URL, json=payload, timeout=20)
-    data = {}
-    try:
-        data = response.json()
-    except ValueError:
-        data = {"raw_response": response.text}
-    return {"status_code": response.status_code, "response": data}
+def get_token(
+    sanitize: bool = False,
+    include_attempts: bool = False,
+    proxies: dict[str, str] | None = None,
+    use_configured_proxy: bool = True,
+) -> dict:
+    attempts = []
+    last_result: dict[str, Any] | None = None
+    request_proxies = proxies if proxies is not None else (_serdipay_proxy_config() if use_configured_proxy else None)
+
+    def attempt_summaries() -> list[dict[str, Any]]:
+        return [dict(attempt) for attempt in attempts]
+
+    for variant in _token_payload_variants():
+        payload = variant["payload"]
+        mode = variant["mode"]
+        try:
+            response = _send_token_request(payload, mode, proxies=request_proxies)
+            data = _parse_response(response)
+            token = _extract_token(data) if isinstance(data, dict) else None
+            result = {
+                "endpoint": TOKEN_URL,
+                "variant": variant["name"],
+                "mode": mode,
+                "status_code": response.status_code,
+                "payload_keys_sent": sorted(payload.keys()),
+                "token_present": bool(token),
+                "response": _sanitize_response(data) if sanitize and isinstance(data, dict) else data,
+                "error": None,
+            }
+        except Exception as exc:
+            result = {
+                "endpoint": TOKEN_URL,
+                "variant": variant["name"],
+                "mode": mode,
+                "status_code": None,
+                "payload_keys_sent": sorted(payload.keys()),
+                "token_present": False,
+                "response": {},
+                "error": exc.__class__.__name__,
+            }
+
+        attempts.append(result)
+        last_result = result
+        if result["token_present"]:
+            if include_attempts:
+                result["attempts"] = attempt_summaries()
+            return result
+
+    if last_result is None:
+        last_result = {"endpoint": TOKEN_URL, "status_code": None, "response": {}, "token_present": False, "error": "NoTokenVariants"}
+    if include_attempts:
+        last_result["attempts"] = attempt_summaries()
+    return last_result
 
 
 def create_payment(phone: str, amount: float, currency: str = "CDF", telecom: str = "AM") -> dict:
     token_data = get_token()
     token_response = token_data.get("response", {})
-    access_token = (
-        token_response.get("token")
-        or token_response.get("access_token")
-        or token_response.get("accessToken")
-    )
+    access_token = _extract_token(token_response) if isinstance(token_response, dict) else None
     reference = str(uuid.uuid4())
+    sanitized_token_data = {**token_data, "response": _sanitize_response(token_response)} if isinstance(token_response, dict) else token_data
+    if not access_token:
+        return {
+            "reference": reference,
+            "token_response": sanitized_token_data,
+            "payment_payload_keys_sent": [],
+            "serdipay_status_code": token_data.get("status_code") or 401,
+            "serdipay_response": {"message": "SerdiPay token unavailable"},
+        }
+
     payload = {
         "api_id": settings.serdipay_api_id,
         "api_password": settings.serdipay_api_password,
@@ -192,8 +339,8 @@ def create_payment(phone: str, amount: float, currency: str = "CDF", telecom: st
 
     return {
         "reference": reference,
-        "token_response": token_data,
-        "payment_payload_sent": payload,
+        "token_response": sanitized_token_data,
+        "payment_payload_keys_sent": sorted(payload.keys()),
         "serdipay_status_code": response.status_code,
         "serdipay_response": response_payload,
     }

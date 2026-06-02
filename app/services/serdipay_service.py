@@ -392,7 +392,11 @@ def _token_failure_conclusion(attempts: list[dict[str, Any]]) -> str:
         return "Aucune variante token n'a pu etre testee."
 
     variable_map = _variables_detected()
-    missing = [name for name, meta in variable_map.items() if name in ("SERDIPAY_PASSWORD", "SERDIPAY_API_PASSWORD", "SERDIPAY_API_KEY", "SERDIPAY_MERCHANT_CODE", "SERDIPAY_PIN") and not meta["present"]]
+    configured_email = variable_map["SERDIPAY_EMAIL"]
+    if configured_email["present"] and configured_email["format_detected"] != "email_like":
+        return "SERDIPAY_EMAIL est configure mais n'est pas une adresse email. L'endpoint API marchand /merchant/get-token exige email/password; le telephone du dashboard mobile n'est pas accepte comme identifiant API."
+
+    missing = [name for name, meta in variable_map.items() if name in ("SERDIPAY_PASSWORD", "SERDIPAY_API_PASSWORD", "SERDIPAY_MERCHANT_CODE", "SERDIPAY_PIN") and not meta["present"]]
     if missing:
         return f"Variables SerdiPay sensibles absentes ou vides: {', '.join(missing)}."
 

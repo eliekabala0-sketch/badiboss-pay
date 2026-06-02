@@ -189,7 +189,7 @@ def _sanitize_response(payload: dict) -> dict:
     for key, value in payload.items():
         if key in TOKEN_KEYS:
             sanitized[key] = "***TOKEN_MASKED***"
-        elif key in SECRET_KEYS:
+        elif key in SECRET_KEYS and not isinstance(value, (dict, list)):
             sanitized[key] = "***SECRET_MASKED***"
         elif isinstance(value, dict):
             sanitized[key] = _sanitize_response(value)

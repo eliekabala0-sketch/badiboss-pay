@@ -21,10 +21,15 @@ class Settings(BaseSettings):
 
     serdipay_api_id: Optional[str] = None
     serdipay_api_password: Optional[str] = None
+    serdipay_api_key: Optional[str] = None
     serdipay_email: Optional[str] = None
     serdipay_password: Optional[str] = None
+    serdipay_phone: Optional[str] = "897970873"
     serdipay_merchant_code: Optional[str] = None
     serdipay_pin: Optional[str] = None
+    serdipay_token_url: str = "https://serdipay.com/api/public-api/v1/merchant/get-token"
+    serdipay_c2b_url: str = "https://serdipay.com/api/public-api/v1/merchant/payment-merchant"
+    serdipay_b2c_url: Optional[str] = None
     serdipay_outbound_proxy_url: Optional[str] = None
     serdipay_expected_outbound_ip: str = "66.33.22.87"
     serdipay_egress_check_url: str = "https://api.ipify.org?format=json"

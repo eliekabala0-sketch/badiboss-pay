@@ -190,6 +190,21 @@ def _official_token_payload() -> dict[str, Any]:
     }
 
 
+def _token_credentials_diagnostic() -> dict[str, Any]:
+    raw_email = settings.serdipay_email
+    raw_password = settings.serdipay_password
+    selected_password = _serdipay_token_password()
+    return {
+        "email_source": "SERDIPAY_EMAIL" if _looks_like_email(raw_email) else "official_fallback",
+        "email_format_detected": _detected_format(_serdipay_token_email(), "SERDIPAY_EMAIL"),
+        "password_source": "SERDIPAY_PASSWORD" if raw_password else "SERDIPAY_API_PASSWORD",
+        "password_length": len(str(selected_password)) if selected_password else 0,
+        "password_format_detected": _detected_format(selected_password, "SERDIPAY_PASSWORD"),
+        "api_password_length": len(str(settings.serdipay_api_password)) if settings.serdipay_api_password else 0,
+        "api_password_format_detected": _detected_format(settings.serdipay_api_password, "SERDIPAY_API_PASSWORD"),
+    }
+
+
 def _token_payload_variants() -> list[dict[str, Any]]:
     return [{"name": "official_email_password_json", "payload": _clean_payload(_official_token_payload())}]
 
@@ -345,6 +360,7 @@ def get_token(
                 "status_code": response.status_code,
                 "token_present": bool(token),
                 "response": _sanitize_response(data) if sanitize and isinstance(data, dict) else data,
+                "credential_diagnostic": _token_credentials_diagnostic(),
                 "error": None,
             }
         except Exception as exc:
@@ -356,6 +372,7 @@ def get_token(
                 "status_code": None,
                 "token_present": False,
                 "response": {},
+                "credential_diagnostic": _token_credentials_diagnostic(),
                 "error": exc.__class__.__name__,
             }
 

@@ -1,4 +1,5 @@
 import os
+import hashlib
 import socket
 import uuid
 from typing import Any
@@ -85,10 +86,15 @@ def _proxy_summary(proxies: dict[str, str] | None) -> dict:
 
 TOKEN_KEYS = ("token", "access_token", "accessToken")
 OFFICIAL_SERDIPAY_EMAIL = "eliekabala0@gmail.com"
+MAIL_PASSWORD_SHA256_PREFIXES = {
+    "mail_candidate_upper_I": "076559cf",
+    "mail_candidate_lower_l": "374acb58",
+}
 SERDIPAY_VARIABLES = (
     "SERDIPAY_EMAIL",
     "SERDIPAY_PHONE",
     "SERDIPAY_PASSWORD",
+    "SERDIPAY_MAIL_PASSWORD",
     "SERDIPAY_API_ID",
     "SERDIPAY_API_PASSWORD",
     "SERDIPAY_API_KEY",
@@ -131,6 +137,12 @@ def _masked_value(value: Any) -> str | None:
     if len(text) <= 4:
         return "*" * len(text)
     return f"{text[:2]}***{text[-2:]}"
+
+
+def _sha256_prefix(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:8]
 
 
 def _detected_format(value: Any, name: str = "") -> str | None:
@@ -190,23 +202,62 @@ def _official_token_payload() -> dict[str, Any]:
     }
 
 
-def _token_credentials_diagnostic() -> dict[str, Any]:
+def _password_matches_known_mail_candidate(value: Any) -> str | None:
+    prefix = _sha256_prefix(value)
+    for name, candidate_prefix in MAIL_PASSWORD_SHA256_PREFIXES.items():
+        if prefix == candidate_prefix:
+            return name
+    return None
+
+
+def _token_credentials_diagnostic(selected_password: Any, password_source: str) -> dict[str, Any]:
     raw_email = settings.serdipay_email
-    raw_password = settings.serdipay_password
-    selected_password = _serdipay_token_password()
     return {
         "email_source": "SERDIPAY_EMAIL" if _looks_like_email(raw_email) else "official_fallback",
         "email_format_detected": _detected_format(_serdipay_token_email(), "SERDIPAY_EMAIL"),
-        "password_source": "SERDIPAY_PASSWORD" if raw_password else "SERDIPAY_API_PASSWORD",
+        "password_source": password_source,
         "password_length": len(str(selected_password)) if selected_password else 0,
+        "password_sha256_prefix": _sha256_prefix(selected_password),
         "password_format_detected": _detected_format(selected_password, "SERDIPAY_PASSWORD"),
         "api_password_length": len(str(settings.serdipay_api_password)) if settings.serdipay_api_password else 0,
+        "api_password_sha256_prefix": _sha256_prefix(settings.serdipay_api_password),
         "api_password_format_detected": _detected_format(settings.serdipay_api_password, "SERDIPAY_API_PASSWORD"),
+        "matches_mail_candidate": _password_matches_known_mail_candidate(selected_password),
+        "mail_candidate_sha256_prefixes": MAIL_PASSWORD_SHA256_PREFIXES,
     }
 
 
 def _token_payload_variants() -> list[dict[str, Any]]:
-    return [{"name": "official_email_password_json", "payload": _clean_payload(_official_token_payload())}]
+    variants = [
+        {
+            "name": "official_env_password_json",
+            "password_source": "SERDIPAY_PASSWORD",
+            "payload": {
+                "email": _serdipay_token_email(),
+                "password": settings.serdipay_password,
+            },
+        },
+        {
+            "name": "official_api_password_json",
+            "password_source": "SERDIPAY_API_PASSWORD",
+            "payload": {
+                "email": _serdipay_token_email(),
+                "password": settings.serdipay_api_password,
+            },
+        },
+    ]
+    if settings.serdipay_mail_password:
+        variants.append(
+            {
+                "name": "official_mail_password_json",
+                "password_source": "SERDIPAY_MAIL_PASSWORD",
+                "payload": {
+                    "email": _serdipay_token_email(),
+                    "password": settings.serdipay_mail_password,
+                },
+            }
+        )
+    return [{**variant, "payload": _clean_payload(variant["payload"])} for variant in variants if variant["payload"].get("password")]
 
 
 def _send_token_request(payload: dict, proxies: dict[str, str] | None = None) -> requests.Response:
@@ -348,6 +399,8 @@ def get_token(
 
     for variant in _token_payload_variants():
         payload = variant["payload"]
+        selected_password = payload.get("password")
+        password_source = variant["password_source"]
         try:
             response = _send_token_request(payload, proxies=request_proxies)
             data = _parse_response(response)
@@ -355,24 +408,32 @@ def get_token(
             result = {
                 "endpoint": TOKEN_URL,
                 "variant": variant["name"],
+                "password_source": password_source,
+                "password_length": len(str(selected_password)) if selected_password else 0,
+                "password_sha256_prefix": _sha256_prefix(selected_password),
+                "matches_mail_candidate": _password_matches_known_mail_candidate(selected_password),
                 "content_type_used": "application/json",
                 "payload_keys_sent": sorted(payload.keys()),
                 "status_code": response.status_code,
                 "token_present": bool(token),
                 "response": _sanitize_response(data) if sanitize and isinstance(data, dict) else data,
-                "credential_diagnostic": _token_credentials_diagnostic(),
+                "credential_diagnostic": _token_credentials_diagnostic(selected_password, password_source),
                 "error": None,
             }
         except Exception as exc:
             result = {
                 "endpoint": TOKEN_URL,
                 "variant": variant["name"],
+                "password_source": password_source,
+                "password_length": len(str(selected_password)) if selected_password else 0,
+                "password_sha256_prefix": _sha256_prefix(selected_password),
+                "matches_mail_candidate": _password_matches_known_mail_candidate(selected_password),
                 "content_type_used": "application/json",
                 "payload_keys_sent": sorted(payload.keys()),
                 "status_code": None,
                 "token_present": False,
                 "response": {},
-                "credential_diagnostic": _token_credentials_diagnostic(),
+                "credential_diagnostic": _token_credentials_diagnostic(selected_password, password_source),
                 "error": exc.__class__.__name__,
             }
 

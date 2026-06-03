@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     serdipay_api_key: Optional[str] = None
     serdipay_email: Optional[str] = "eliekabala0@gmail.com"
     serdipay_password: Optional[str] = None
+    serdipay_mail_password: Optional[str] = None
     serdipay_phone: Optional[str] = "897970873"
     serdipay_merchant_code: Optional[str] = None
     serdipay_pin: Optional[str] = None

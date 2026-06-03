@@ -7,7 +7,7 @@ router = APIRouter(tags=["Legacy Compatibility"])
 
 @router.post("/api/test-token")
 def legacy_test_token():
-    return get_token(sanitize=True)
+    return get_token(sanitize=True, include_attempts=True)
 
 
 @router.post("/api/test-payment")

@@ -178,9 +178,9 @@ def _serdipay_token_email() -> str:
 
 
 def _serdipay_token_password() -> str | None:
-    if settings.serdipay_password and str(settings.serdipay_password).startswith("$2y$"):
+    if settings.serdipay_password:
         return settings.serdipay_password
-    return settings.serdipay_api_password or settings.serdipay_password
+    return settings.serdipay_api_password
 
 
 def _official_token_payload() -> dict[str, Any]:

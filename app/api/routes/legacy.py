@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request
 
-from app.services.serdipay_service import create_payment, get_token
+from app.services.serdipay_service import create_test_payment_diagnostic, get_token
 
 router = APIRouter(tags=["Legacy Compatibility"])
 
@@ -12,9 +12,14 @@ def legacy_test_token():
 
 @router.post("/api/test-payment")
 async def legacy_test_payment(request: Request):
-    body = await request.json()
-    return create_payment(
-        phone=body.get("phone"),
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    return create_test_payment_diagnostic(
+        phone=body.get("clientPhone") or body.get("phone"),
         amount=body.get("amount"),
         currency=body.get("currency", "CDF"),
         telecom=body.get("telecom", "AM"),

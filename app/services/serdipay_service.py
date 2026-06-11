@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import hashlib
 import socket
@@ -120,6 +122,7 @@ SECRET_KEYS = {
     "secret_key",
     "secretKey",
 }
+SECRET_KEY_FRAGMENTS = ("token", "password", "api_password", "pin", "authorization", "secret", "key")
 
 
 def _setting_value(name: str) -> str | None:
@@ -302,6 +305,55 @@ def _sanitize_response(payload: dict) -> dict:
         else:
             sanitized[key] = value
     return sanitized
+
+
+def _is_sensitive_key(key: Any) -> bool:
+    key_text = str(key)
+    key_lower = key_text.lower()
+    return key_text in SECRET_KEYS or any(fragment in key_lower for fragment in SECRET_KEY_FRAGMENTS)
+
+
+def _known_secret_values(extra_secrets: tuple[Any, ...] = ()) -> list[str]:
+    values = (
+        settings.serdipay_api_password,
+        settings.serdipay_password,
+        settings.serdipay_mail_password,
+        settings.serdipay_pin,
+        settings.serdipay_api_key,
+        settings.secret_key,
+        settings.admin_password,
+        *extra_secrets,
+    )
+    return sorted({str(value) for value in values if value not in (None, "")}, key=len, reverse=True)
+
+
+def _mask_known_secrets(text: str, extra_secrets: tuple[Any, ...] = ()) -> str:
+    masked = text
+    for secret in _known_secret_values(extra_secrets):
+        masked = masked.replace(secret, "***SECRET_MASKED***")
+    return masked
+
+
+def _sanitize_any(value: Any, extra_secrets: tuple[Any, ...] = ()) -> Any:
+    if isinstance(value, dict):
+        sanitized: dict[str, Any] = {}
+        for key, item in value.items():
+            if str(key) in TOKEN_KEYS:
+                sanitized[key] = "***TOKEN_MASKED***"
+            elif _is_sensitive_key(key):
+                sanitized[key] = "***SECRET_MASKED***"
+            else:
+                sanitized[key] = _sanitize_any(item, extra_secrets=extra_secrets)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_any(item, extra_secrets=extra_secrets) for item in value]
+    if isinstance(value, str):
+        return _mask_known_secrets(value, extra_secrets=extra_secrets)
+    return value
+
+
+def _safe_error_message(exc: Exception, extra_secrets: tuple[Any, ...] = ()) -> str:
+    return _mask_known_secrets(str(exc), extra_secrets=extra_secrets)
 
 
 def _safe_token_test(proxies: dict[str, str] | None = None) -> dict:
@@ -489,5 +541,101 @@ def create_payment(phone: str, amount: float, currency: str = "CDF", telecom: st
         "token_response": sanitized_token_data,
         "payment_payload_keys_sent": sorted(payload.keys()),
         "serdipay_status_code": response.status_code,
-        "serdipay_response": response_payload,
+        "serdipay_response": _sanitize_any(response_payload, extra_secrets=(access_token,)),
     }
+
+
+def create_test_payment_diagnostic(
+    phone: str | None,
+    amount: float | None = None,
+    currency: str = "CDF",
+    telecom: str = "AM",
+) -> dict:
+    diagnostic = {
+        "step": "token_request",
+        "token_obtained": False,
+        "serdipay_endpoint": PAYMENT_URL,
+        "payload_keys_sent": [],
+        "authorization_header_present": False,
+        "status_code_serdipay": None,
+        "response_serdipay": None,
+        "error_type": None,
+        "error_message": None,
+    }
+
+    access_token = None
+    try:
+        token_data = get_token(sanitize=False)
+        token_response = token_data.get("response", {})
+        access_token = _extract_token(token_response) if isinstance(token_response, dict) else None
+        diagnostic["token_obtained"] = bool(access_token)
+        if not access_token:
+            diagnostic.update(
+                {
+                    "step": "token_response",
+                    "status_code_serdipay": token_data.get("status_code"),
+                    "response_serdipay": _sanitize_any(token_response),
+                    "error_type": token_data.get("error") or "TokenUnavailable",
+                    "error_message": "SerdiPay token unavailable",
+                }
+            )
+            return diagnostic
+    except Exception as exc:
+        diagnostic.update(
+            {
+                "step": "token_request",
+                "error_type": exc.__class__.__name__,
+                "error_message": _safe_error_message(exc),
+            }
+        )
+        return diagnostic
+
+    payment_amount = amount if amount is not None else 100
+    payload = {
+        "api_id": settings.serdipay_api_id,
+        "api_password": settings.serdipay_api_password,
+        "merchantCode": settings.serdipay_merchant_code,
+        "merchant_pin": settings.serdipay_pin,
+        "clientPhone": phone or settings.serdipay_phone,
+        "amount": payment_amount,
+        "currency": currency or "CDF",
+        "telecom": telecom or "AM",
+    }
+    diagnostic["payload_keys_sent"] = sorted(payload.keys())
+
+    if not payload["clientPhone"]:
+        diagnostic.update(
+            {
+                "step": "payload_validation",
+                "authorization_header_present": True,
+                "error_type": "MissingClientPhone",
+                "error_message": "clientPhone is required for the SerdiPay test payload.",
+            }
+        )
+        return diagnostic
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    diagnostic["authorization_header_present"] = bool(headers.get("Authorization"))
+
+    try:
+        diagnostic["step"] = "serdipay_payment_request"
+        response = _serdipay_request("POST", PAYMENT_URL, json=payload, headers=headers, timeout=25)
+        diagnostic["status_code_serdipay"] = response.status_code
+        diagnostic["response_serdipay"] = _sanitize_any(_parse_response(response), extra_secrets=(access_token,))
+        if response.status_code >= 400:
+            diagnostic["error_type"] = "SerdiPayHTTPError"
+            diagnostic["error_message"] = f"SerdiPay returned HTTP {response.status_code}"
+    except Exception as exc:
+        diagnostic.update(
+            {
+                "step": "serdipay_payment_request",
+                "error_type": exc.__class__.__name__,
+                "error_message": _safe_error_message(exc, extra_secrets=(access_token,)),
+            }
+        )
+
+    return diagnostic

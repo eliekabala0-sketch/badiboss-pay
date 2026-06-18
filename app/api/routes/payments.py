@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -6,6 +8,7 @@ from app.api.deps import require_roles
 from app.core.roles import AdminRole
 from app.models.commission import Commission
 from app.models.connected_app import ConnectedApp
+from app.models.merchant_balance import MerchantBalance
 from app.models.transaction import Transaction
 from app.schemas.transactions import PaymentCreateRequest, PaymentStatusRequest
 from app.services.commission_service import compute_commission_and_net
@@ -13,6 +16,42 @@ from app.services.serdipay_service import create_payment, get_egress_diagnostic,
 from app.services.tracking_service import collect_tracking_data
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
+
+
+def _normalize_currency(currency: str) -> str:
+    normalized = str(currency or "CDF").upper()
+    return normalized if normalized in {"USD", "CDF"} else "CDF"
+
+
+def _provider_value(payload: dict, key: str):
+    payment = payload.get("payment")
+    if isinstance(payment, dict) and payment.get(key) not in (None, ""):
+        return payment.get(key)
+    return payload.get(key)
+
+
+def _update_merchant_balance(db: Session, tx: Transaction) -> None:
+    if tx.status != "success":
+        return
+    balance = (
+        db.query(MerchantBalance)
+        .filter(
+            MerchantBalance.app_id == tx.app_id,
+            MerchantBalance.company_id == tx.company_id,
+            MerchantBalance.currency == tx.currency,
+        )
+        .first()
+    )
+    if not balance:
+        balance = MerchantBalance(
+            app_id=tx.app_id,
+            company_id=tx.company_id,
+            available_balance=0.0,
+            pending_balance=0.0,
+            currency=tx.currency,
+        )
+        db.add(balance)
+    balance.available_balance += tx.net_amount
 
 
 @router.post("/create")
@@ -33,15 +72,19 @@ def create_payment_endpoint(payload: PaymentCreateRequest, request: Request, db:
     if not app:
         raise HTTPException(status_code=401, detail="Invalid app credentials")
 
+    currency = _normalize_currency(payload.currency)
     provider_payload = create_payment(
         phone=payload.phone,
         amount=payload.amount,
-        currency=payload.currency,
+        currency=currency,
         telecom=payload.telecom,
     )
     provider_response = provider_payload.get("serdipay_response", {})
     provider_status_code = provider_payload.get("serdipay_status_code", 500)
-    provider_reference = str(provider_response.get("reference") or provider_response.get("transactionId") or "")
+    provider_reference = str(
+        _provider_value(provider_response, "transactionId") or _provider_value(provider_response, "reference") or ""
+    )
+    provider_session_id = _provider_value(provider_response, "sessionId")
     status_value = "pending"
     if provider_status_code in (200, 201):
         status_value = "success"
@@ -59,10 +102,12 @@ def create_payment_endpoint(payload: PaymentCreateRequest, request: Request, db:
         payer_phone=payload.phone,
         company_id=payload.company_id,
         amount=payload.amount,
-        currency=payload.currency,
+        currency=currency,
         status=status_value,
         provider="serdipay",
         provider_reference=provider_reference or None,
+        provider_session_id=str(provider_session_id) if provider_session_id not in (None, "") else None,
+        raw_payload=json.dumps(provider_response, ensure_ascii=True),
         fees=provider_fees,
         commission=commission,
         net_amount=net_amount,
@@ -79,7 +124,7 @@ def create_payment_endpoint(payload: PaymentCreateRequest, request: Request, db:
         source_application=tracking["source_application"],
     )
     db.add(tx)
-    if commission > 0:
+    if commission > 0 and status_value == "success":
         db.add(
             Commission(
                 app_id=payload.app_id,
@@ -88,9 +133,10 @@ def create_payment_endpoint(payload: PaymentCreateRequest, request: Request, db:
                 commission_type=app.commission_type,
                 commission_value=app.commission_value,
                 amount_collected=commission,
-                currency=payload.currency,
+                currency=currency,
             )
         )
+    _update_merchant_balance(db, tx)
     db.commit()
     db.refresh(tx)
 
@@ -108,7 +154,13 @@ def payment_status(payload: PaymentStatusRequest, db: Session = Depends(get_db))
     tx = db.query(Transaction).filter(Transaction.reference == payload.reference).first()
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
-    return {"reference": tx.reference, "status": tx.status, "provider_reference": tx.provider_reference}
+    return {
+        "reference": tx.reference,
+        "status": tx.status,
+        "provider_reference": tx.provider_reference,
+        "provider_session_id": tx.provider_session_id,
+        "currency": tx.currency,
+    }
 
 
 @router.post("/test-token")

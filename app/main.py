@@ -10,6 +10,7 @@ from app.api.router import api_router
 from app.core.config import get_database_url, settings
 from app.db.base import Base
 from app.db.init_db import seed_default_admin
+from app.db.runtime_schema import ensure_runtime_schema
 from app.db.session import SessionLocal, engine
 from app.frontend_paths import get_frontend_runtime_state, log_frontend_runtime_state, resolve_frontend_dist
 from app.middleware.request_context import request_context_middleware
@@ -102,6 +103,7 @@ def on_startup():
     _print_startup_diag(startup_ok=False)
     log_frontend_runtime_state()
     Base.metadata.create_all(bind=engine)
+    ensure_runtime_schema(engine)
     db = SessionLocal()
     try:
         seed_default_admin(db)

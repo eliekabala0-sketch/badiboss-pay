@@ -17,6 +17,26 @@ export type DashboardStats = {
   withdrawals_pending: number;
   api_webhook_errors: number;
   realtime_activity: number;
+  by_currency: Record<string, CurrencyStats>;
+  status_counts: {
+    success: number;
+    failed: number;
+    pending: number;
+  };
+};
+
+export type CurrencyStats = {
+  total_collected: number;
+  total_provider_fees: number;
+  total_commissions: number;
+  merchant_net: number;
+  merchant_available_balance: number;
+  revenue_today: number;
+  revenue_month: number;
+  total_transactions: number;
+  success: number;
+  failed: number;
+  pending: number;
 };
 
 export type ConnectedApp = {
@@ -48,6 +68,8 @@ export type Transaction = {
   status: string;
   provider: string;
   provider_reference?: string;
+  provider_session_id?: string;
+  raw_payload?: string;
   fees: number;
   commission: number;
   net_amount: number;

@@ -34,6 +34,7 @@ class TransactionResponse(BaseModel):
     status: str
     provider: str
     provider_reference: Optional[str]
+    provider_session_id: Optional[str]
     fees: float
     commission: float
     net_amount: float

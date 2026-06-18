@@ -79,11 +79,22 @@ def analytics(
     by_app = (
         db.query(
             Transaction.app_id,
+            Transaction.currency,
             func.count(Transaction.id).label("transactions"),
             func.coalesce(func.sum(Transaction.amount), 0.0).label("volume"),
         )
-        .group_by(Transaction.app_id)
+        .group_by(Transaction.app_id, Transaction.currency)
         .order_by(func.sum(Transaction.amount).desc())
+        .all()
+    )
+    by_currency = (
+        db.query(
+            Transaction.currency,
+            func.count(Transaction.id).label("transactions"),
+            func.coalesce(func.sum(Transaction.amount), 0.0).label("volume"),
+        )
+        .group_by(Transaction.currency)
+        .order_by(Transaction.currency)
         .all()
     )
     by_country = (
@@ -97,15 +108,33 @@ def analytics(
     )
     return {
         "transactions_by_app": [
-            {"app_id": row.app_id, "transactions": row.transactions, "volume": float(row.volume or 0.0)}
+            {
+                "app_id": row.app_id,
+                "currency": row.currency,
+                "transactions": row.transactions,
+                "volume": float(row.volume or 0.0),
+            }
             for row in by_app
+        ],
+        "transactions_by_currency": [
+            {
+                "currency": row.currency or "CDF",
+                "transactions": row.transactions,
+                "volume": float(row.volume or 0.0),
+            }
+            for row in by_currency
         ],
         "transactions_by_country": [
             {"country": row.country or "unknown", "transactions": row.transactions} for row in by_country
         ],
         "transactions_by_city": [{"city": row.city or "unknown", "transactions": row.transactions} for row in by_city],
         "users_by_application": [
-            {"app_id": row.app_id, "transactions": row.transactions, "volume": float(row.volume or 0.0)}
+            {
+                "app_id": row.app_id,
+                "currency": row.currency,
+                "transactions": row.transactions,
+                "volume": float(row.volume or 0.0),
+            }
             for row in by_app
         ],
         "device_types": [

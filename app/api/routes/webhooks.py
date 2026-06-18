@@ -1,15 +1,13 @@
-import requests
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_roles
 from app.core.roles import AdminRole
-from app.core.config import settings
-from app.models.connected_app import ConnectedApp
 from app.models.transaction import Transaction
 from app.models.webhook_log import WebhookLog
-from app.services.audit_service import log_webhook_event
+from app.services.client_callback_service import send_client_callback
+from app.services.serdipay_callback_service import process_serdipay_callback
 
 router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
 
@@ -17,74 +15,11 @@ router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
 @router.post("/serdipay")
 async def serdipay_callback(request: Request, db: Session = Depends(get_db)):
     payload = await request.json()
-    reference = payload.get("reference") or payload.get("client_reference")
-    status_value = payload.get("status", "").lower()
-    log_webhook_event(
-        db,
-        direction="INBOUND",
-        provider="serdipay",
-        event_type=payload.get("event_type") or "payment_update",
-        reference=reference,
-        status_code=200,
-        payload=payload,
-    )
-
-    tx = db.query(Transaction).filter(Transaction.reference == reference).first() if reference else None
+    result = process_serdipay_callback(db, payload if isinstance(payload, dict) else {"payload": payload})
+    tx = db.query(Transaction).filter(Transaction.reference == result["transaction_reference"]).first()
     if tx:
-        if status_value in {"success", "failed", "cancelled", "pending"}:
-            tx.status = status_value
-        tx.provider_reference = str(payload.get("provider_reference") or tx.provider_reference or "")
-        db.commit()
-        db.refresh(tx)
-        _send_client_callback(db, tx)
-
-    return {"success": True}
-
-
-def _send_client_callback(db: Session, transaction: Transaction) -> None:
-    app = db.query(ConnectedApp).filter(ConnectedApp.app_id == transaction.app_id).first()
-    if not app or not app.callback_url:
-        return
-
-    callback_payload = {
-        "reference": transaction.reference,
-        "status": transaction.status,
-        "amount": transaction.amount,
-        "currency": transaction.currency,
-        "provider_reference": transaction.provider_reference,
-    }
-    headers = {"X-Badiboss-App-Id": app.app_id, "X-Badiboss-Api-Key": app.api_key}
-    try:
-        response = requests.post(
-            app.callback_url,
-            json=callback_payload,
-            headers=headers,
-            timeout=settings.client_callback_timeout_seconds,
-        )
-        log_webhook_event(
-            db,
-            direction="OUTBOUND",
-            provider="badiboss_pay",
-            event_type="client_callback",
-            reference=transaction.reference,
-            app_id=transaction.app_id,
-            company_id=transaction.company_id,
-            status_code=response.status_code,
-            payload=callback_payload,
-            response_body=response.text[:2000],
-        )
-    except Exception:
-        log_webhook_event(
-            db,
-            direction="OUTBOUND",
-            provider="badiboss_pay",
-            event_type="client_callback",
-            reference=transaction.reference,
-            app_id=transaction.app_id,
-            company_id=transaction.company_id,
-            payload=callback_payload,
-            error_message="Client callback failed",
-        )
+        send_client_callback(db, tx)
+    return result
 
 
 @router.get("/history")
@@ -141,7 +76,7 @@ def retry_webhook(
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found for retry")
 
-    _send_client_callback(db, tx)
+    send_client_callback(db, tx)
     return {"success": True, "reference": tx.reference}
 
 

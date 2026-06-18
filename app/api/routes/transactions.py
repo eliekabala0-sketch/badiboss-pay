@@ -18,6 +18,7 @@ def list_transactions(
     app_id: Optional[str] = Query(default=None),
     company_id: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
+    currency: Optional[str] = Query(default=None),
     user_id: Optional[str] = Query(default=None),
     phone: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
@@ -35,6 +36,8 @@ def list_transactions(
         query = query.filter(Transaction.company_id == company_id)
     if status:
         query = query.filter(Transaction.status == status)
+    if currency:
+        query = query.filter(Transaction.currency == currency.upper())
     if user_id:
         query = query.filter(Transaction.user_id == user_id)
     if phone:
@@ -47,6 +50,8 @@ def list_transactions(
             | (Transaction.payer_phone.ilike(like_value))
             | (Transaction.app_id.ilike(like_value))
             | (Transaction.company_id.ilike(like_value))
+            | (Transaction.provider_reference.ilike(like_value))
+            | (Transaction.provider_session_id.ilike(like_value))
         )
     if date_from:
         query = query.filter(Transaction.created_at >= datetime.combine(date_from, time.min, tzinfo=timezone.utc))
@@ -68,6 +73,7 @@ def export_transactions_csv(
     app_id: Optional[str] = Query(default=None),
     company_id: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
+    currency: Optional[str] = Query(default=None),
     phone: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
     date_from: Optional[date] = Query(default=None),
@@ -82,6 +88,8 @@ def export_transactions_csv(
         query = query.filter(Transaction.company_id == company_id)
     if status:
         query = query.filter(Transaction.status == status)
+    if currency:
+        query = query.filter(Transaction.currency == currency.upper())
     if phone:
         query = query.filter(Transaction.payer_phone == phone)
     if search:
@@ -92,6 +100,8 @@ def export_transactions_csv(
             | (Transaction.payer_phone.ilike(like_value))
             | (Transaction.app_id.ilike(like_value))
             | (Transaction.company_id.ilike(like_value))
+            | (Transaction.provider_reference.ilike(like_value))
+            | (Transaction.provider_session_id.ilike(like_value))
         )
     if date_from:
         query = query.filter(Transaction.created_at >= datetime.combine(date_from, time.min, tzinfo=timezone.utc))
@@ -112,6 +122,8 @@ def export_transactions_csv(
             "currency",
             "status",
             "provider",
+            "provider_reference",
+            "provider_session_id",
             "fees",
             "commission",
             "net_amount",
@@ -137,6 +149,8 @@ def export_transactions_csv(
                 row.currency,
                 row.status,
                 row.provider,
+                row.provider_reference or "",
+                row.provider_session_id or "",
                 row.fees,
                 row.commission,
                 row.net_amount,

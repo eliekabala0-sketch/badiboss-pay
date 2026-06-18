@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 
 import { apiClient } from "../api/client";
+import { formatMoney } from "../utils/format";
 
 type AnalyticsPayload = {
+  transactions_by_currency: Array<{ currency: string; transactions: number; volume: number }>;
   transactions_by_country: Array<{ country: string; transactions: number }>;
   transactions_by_city: Array<{ city: string; transactions: number }>;
-  users_by_application: Array<{ app_id: string; transactions: number }>;
+  users_by_application: Array<{ app_id: string; currency: string; transactions: number; volume: number }>;
   device_types: Array<{ device_type: string; transactions: number }>;
   platforms: Array<{ platform: string; transactions: number }>;
   recent_activity: Array<{
@@ -38,9 +40,10 @@ function AnalyticsPage() {
       <p className="text-sm text-slate-600">Pays, villes, IP, appareils, systèmes, navigateurs et sources d'application.</p>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
       <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <SimpleList title="Transactions par devise" items={(data?.transactions_by_currency ?? []).map((entry) => `${entry.currency}: ${entry.transactions} - ${formatMoney(entry.volume, entry.currency)}`)} />
         <SimpleList title="Utilisateurs par pays" items={(data?.transactions_by_country ?? []).map((entry) => `${entry.country}: ${entry.transactions}`)} />
         <SimpleList title="Utilisateurs par ville" items={(data?.transactions_by_city ?? []).map((entry) => `${entry.city}: ${entry.transactions}`)} />
-        <SimpleList title="Utilisateurs par application" items={(data?.users_by_application ?? []).map((entry) => `${entry.app_id}: ${entry.transactions}`)} />
+        <SimpleList title="Utilisateurs par application" items={(data?.users_by_application ?? []).map((entry) => `${entry.app_id} / ${entry.currency}: ${entry.transactions} - ${formatMoney(entry.volume, entry.currency)}`)} />
         <SimpleList title="Utilisateurs par appareil" items={(data?.device_types ?? []).map((entry) => `${entry.device_type}: ${entry.transactions}`)} />
         <SimpleList title="Systèmes d'exploitation" items={(data?.platforms ?? []).map((entry) => `${platformLabel(entry.platform)}: ${entry.transactions}`)} />
       </div>

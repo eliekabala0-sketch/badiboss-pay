@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -21,6 +21,8 @@ class Transaction(Base):
     status: Mapped[str] = mapped_column(String(30), default="pending", nullable=False)
     provider: Mapped[str] = mapped_column(String(50), default="serdipay", nullable=False)
     provider_reference: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    provider_session_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    raw_payload: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     fees: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     commission: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     net_amount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, func
@@ -18,6 +20,92 @@ from app.models.withdrawal import Withdrawal
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
+CURRENCIES = ("USD", "CDF")
+
+
+def _sum_by_currency(db: Session, model, amount_column, *filters) -> dict[str, float]:
+    rows = (
+        db.query(model.currency, func.coalesce(func.sum(amount_column), 0.0))
+        .filter(*filters)
+        .group_by(model.currency)
+        .all()
+    )
+    totals = {currency: 0.0 for currency in CURRENCIES}
+    for currency, value in rows:
+        currency_key = str(currency or "CDF").upper()
+        totals[currency_key] = float(value or 0.0)
+    return totals
+
+
+def _count_transactions_by_currency(db: Session, *filters) -> dict[str, int]:
+    rows = (
+        db.query(Transaction.currency, func.count(Transaction.id))
+        .filter(*filters)
+        .group_by(Transaction.currency)
+        .all()
+    )
+    totals = {currency: 0 for currency in CURRENCIES}
+    for currency, value in rows:
+        currency_key = str(currency or "CDF").upper()
+        totals[currency_key] = int(value or 0)
+    return totals
+
+
+def _status_counts(db: Session) -> dict[str, int]:
+    rows = db.query(Transaction.status, func.count(Transaction.id)).group_by(Transaction.status).all()
+    counts = {"success": 0, "failed": 0, "pending": 0}
+    for status, value in rows:
+        status_key = str(status or "pending").lower()
+        if status_key in {"cancelled", "canceled", "error"}:
+            status_key = "failed"
+        if status_key not in counts:
+            status_key = "pending"
+        counts[status_key] += int(value or 0)
+    return counts
+
+
+def _currency_breakdown(db: Session, start_today: datetime, start_month: datetime) -> dict[str, dict[str, float | int]]:
+    collected = _sum_by_currency(db, Transaction, Transaction.amount, Transaction.status == "success")
+    provider_fees = _sum_by_currency(db, Transaction, Transaction.fees, Transaction.status == "success")
+    commissions = _sum_by_currency(db, Transaction, Transaction.commission, Transaction.status == "success")
+    merchant_net = _sum_by_currency(db, Transaction, Transaction.net_amount, Transaction.status == "success")
+    balances = _sum_by_currency(db, MerchantBalance, MerchantBalance.available_balance)
+    revenue_today = _sum_by_currency(
+        db,
+        Transaction,
+        Transaction.commission,
+        Transaction.status == "success",
+        Transaction.created_at >= start_today,
+    )
+    revenue_month = _sum_by_currency(
+        db,
+        Transaction,
+        Transaction.commission,
+        Transaction.status == "success",
+        Transaction.created_at >= start_month,
+    )
+    transaction_counts = _count_transactions_by_currency(db)
+    success_counts = _count_transactions_by_currency(db, Transaction.status == "success")
+    failed_counts = _count_transactions_by_currency(db, Transaction.status.in_(["failed", "cancelled", "canceled", "error"]))
+    pending_counts = _count_transactions_by_currency(db, Transaction.status == "pending")
+
+    return {
+        currency: {
+            "total_collected": collected[currency],
+            "total_provider_fees": provider_fees[currency],
+            "total_commissions": commissions[currency],
+            "merchant_net": merchant_net[currency],
+            "merchant_available_balance": balances[currency],
+            "revenue_today": revenue_today[currency],
+            "revenue_month": revenue_month[currency],
+            "total_transactions": transaction_counts[currency],
+            "success": success_counts[currency],
+            "failed": failed_counts[currency],
+            "pending": pending_counts[currency],
+        }
+        for currency in CURRENCIES
+    }
+
 
 @router.get("/stats")
 def dashboard_stats(
@@ -30,10 +118,11 @@ def dashboard_stats(
 
     total_apps = db.query(func.count(ConnectedApp.id)).scalar() or 0
     total_transactions = db.query(func.count(Transaction.id)).scalar() or 0
-    total_collected = db.query(func.coalesce(func.sum(Transaction.amount), 0.0)).filter(Transaction.status == "success").scalar() or 0.0
-    total_provider_fees = db.query(func.coalesce(func.sum(Transaction.fees), 0.0)).filter(Transaction.status == "success").scalar() or 0.0
-    total_commissions = db.query(func.coalesce(func.sum(Transaction.commission), 0.0)).scalar() or 0.0
-    merchant_net = db.query(func.coalesce(func.sum(Transaction.net_amount), 0.0)).filter(Transaction.status == "success").scalar() or 0.0
+    by_currency = _currency_breakdown(db, start_today, start_month)
+    total_collected = sum(currency_data["total_collected"] for currency_data in by_currency.values())
+    total_provider_fees = sum(currency_data["total_provider_fees"] for currency_data in by_currency.values())
+    total_commissions = sum(currency_data["total_commissions"] for currency_data in by_currency.values())
+    merchant_net = sum(currency_data["merchant_net"] for currency_data in by_currency.values())
     revenue_today = (
         db.query(func.coalesce(func.sum(Transaction.commission), 0.0))
         .filter(and_(Transaction.created_at >= start_today, Transaction.status == "success"))
@@ -55,7 +144,7 @@ def dashboard_stats(
     settlement_errors = db.query(func.count(Settlement.id)).filter(Settlement.status.in_(["failed", "error"])).scalar() or 0
     withdrawals_count = db.query(func.count(Withdrawal.id)).scalar() or 0
     withdrawals_pending = db.query(func.count(Withdrawal.id)).filter(Withdrawal.status == "pending").scalar() or 0
-    merchant_available_balance = db.query(func.coalesce(func.sum(MerchantBalance.available_balance), 0.0)).scalar() or 0.0
+    merchant_available_balance = sum(currency_data["merchant_available_balance"] for currency_data in by_currency.values())
     api_errors = db.query(func.count(ApiLog.id)).filter(ApiLog.status_code >= 400).scalar() or 0
     webhook_errors = (
         db.query(func.count(WebhookLog.id))
@@ -80,6 +169,8 @@ def dashboard_stats(
         "total_commissions": float(total_commissions),
         "merchant_net": float(merchant_net),
         "merchant_available_balance": float(merchant_available_balance),
+        "by_currency": by_currency,
+        "status_counts": _status_counts(db),
         "revenue_today": float(revenue_today),
         "revenue_month": float(revenue_month),
         "active_subscriptions": active_subscriptions,

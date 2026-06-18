@@ -14,6 +14,25 @@ from app.models.transaction import Transaction
 from app.models.withdrawal import Withdrawal
 
 router = APIRouter(prefix="/finance", tags=["Finance"])
+CURRENCIES = ("USD", "CDF")
+
+
+def _normalize_currency(currency: str) -> str:
+    normalized = str(currency or "CDF").upper()
+    return normalized if normalized in CURRENCIES else "CDF"
+
+
+def _transaction_sum_by_currency(db: Session, column) -> dict[str, float]:
+    rows = (
+        db.query(Transaction.currency, func.coalesce(func.sum(column), 0.0))
+        .filter(Transaction.status == "success")
+        .group_by(Transaction.currency)
+        .all()
+    )
+    totals = {currency: 0.0 for currency in CURRENCIES}
+    for currency, value in rows:
+        totals[_normalize_currency(currency)] = float(value or 0.0)
+    return totals
 
 
 @router.get("/wallets")
@@ -23,6 +42,7 @@ def list_wallets(db: Session = Depends(get_db), _=Depends(require_roles(AdminRol
 
 @router.post("/wallets", status_code=status.HTTP_201_CREATED)
 def create_wallet(app_id: str, company_id: str, currency: str = "CDF", db: Session = Depends(get_db), _=Depends(require_roles(AdminRole.SUPER_ADMIN, AdminRole.FINANCE_ADMIN))):
+    currency = _normalize_currency(currency)
     wallet = MerchantWallet(
         app_id=app_id,
         company_id=company_id,
@@ -33,7 +53,7 @@ def create_wallet(app_id: str, company_id: str, currency: str = "CDF", db: Sessi
     db.add(wallet)
     existing_balance = (
         db.query(MerchantBalance)
-        .filter(MerchantBalance.app_id == app_id, MerchantBalance.company_id == company_id)
+        .filter(MerchantBalance.app_id == app_id, MerchantBalance.company_id == company_id, MerchantBalance.currency == currency)
         .first()
     )
     if not existing_balance:
@@ -50,6 +70,7 @@ def list_settlements(db: Session = Depends(get_db), _=Depends(require_roles(Admi
 
 @router.post("/settlements", status_code=status.HTTP_201_CREATED)
 def create_settlement(app_id: str, company_id: str, amount: float, currency: str = "CDF", db: Session = Depends(get_db), _=Depends(require_roles(AdminRole.SUPER_ADMIN, AdminRole.FINANCE_ADMIN))):
+    currency = _normalize_currency(currency)
     settlement = Settlement(
         app_id=app_id,
         company_id=company_id,
@@ -71,9 +92,10 @@ def list_withdrawals(db: Session = Depends(get_db), _=Depends(require_roles(Admi
 
 @router.post("/withdrawals", status_code=status.HTTP_201_CREATED)
 def create_withdrawal(app_id: str, company_id: str, amount: float, currency: str = "CDF", db: Session = Depends(get_db), _=Depends(require_roles(AdminRole.SUPER_ADMIN, AdminRole.FINANCE_ADMIN))):
+    currency = _normalize_currency(currency)
     balance = (
         db.query(MerchantBalance)
-        .filter(MerchantBalance.app_id == app_id, MerchantBalance.company_id == company_id)
+        .filter(MerchantBalance.app_id == app_id, MerchantBalance.company_id == company_id, MerchantBalance.currency == currency)
         .first()
     )
     if not balance:
@@ -112,11 +134,33 @@ def platform_revenue(
     db: Session = Depends(get_db),
     _=Depends(require_roles(AdminRole.SUPER_ADMIN, AdminRole.FINANCE_ADMIN, AdminRole.VIEWER)),
 ):
-    total_commissions = db.query(func.coalesce(func.sum(Commission.amount_collected), 0.0)).scalar() or 0.0
-    total_provider_fees = db.query(func.coalesce(func.sum(Transaction.fees), 0.0)).scalar() or 0.0
-    total_net_platform = float(total_commissions) - float(total_provider_fees)
+    commission_rows = (
+        db.query(Transaction.currency, func.coalesce(func.sum(Transaction.commission), 0.0))
+        .filter(Transaction.status == "success")
+        .group_by(Transaction.currency)
+        .all()
+    )
+    commissions_by_currency = {currency: 0.0 for currency in CURRENCIES}
+    for currency, value in commission_rows:
+        commissions_by_currency[_normalize_currency(currency)] = float(value or 0.0)
+    provider_fees_by_currency = _transaction_sum_by_currency(db, Transaction.fees)
+    net_by_currency = {
+        currency: commissions_by_currency[currency] - provider_fees_by_currency[currency]
+        for currency in CURRENCIES
+    }
+    total_commissions = sum(commissions_by_currency.values())
+    total_provider_fees = sum(provider_fees_by_currency.values())
+    total_net_platform = sum(net_by_currency.values())
     return {
         "total_commissions": float(total_commissions),
         "total_provider_fees": float(total_provider_fees),
         "total_net_platform": float(total_net_platform),
+        "by_currency": {
+            currency: {
+                "total_commissions": commissions_by_currency[currency],
+                "total_provider_fees": provider_fees_by_currency[currency],
+                "total_net_platform": net_by_currency[currency],
+            }
+            for currency in CURRENCIES
+        },
     }

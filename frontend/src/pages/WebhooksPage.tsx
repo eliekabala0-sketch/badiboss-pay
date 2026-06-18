@@ -15,13 +15,34 @@ type WebhookRow = {
   created_at?: string;
 };
 
+type ValidationSummary = {
+  token_ok: boolean;
+  payment_request_ok: boolean;
+  callback_ok: boolean;
+  transaction_visible_ok: boolean;
+  ready_for_serdipay_review: boolean;
+  transaction?: {
+    reference: string;
+    transactionId?: string;
+    sessionId?: string;
+    status: string;
+    status_display: string;
+    currency: string;
+    amount_display: string;
+    source?: string;
+    is_callback_test: boolean;
+  };
+};
+
 function WebhooksPage() {
   const [rows, setRows] = useState<WebhookRow[]>([]);
   const [status, setStatus] = useState<{ total: number; success: number; failed: number } | null>(null);
+  const [summary, setSummary] = useState<ValidationSummary | null>(null);
 
   function load() {
     apiClient.get<WebhookRow[]>("/webhooks/history").then((response) => setRows(response.data));
     apiClient.get("/webhooks/status").then((response) => setStatus(response.data));
+    apiClient.get<ValidationSummary>("/webhooks/serdipay/validation-summary").then((response) => setSummary(response.data));
   }
 
   useEffect(() => {
@@ -41,6 +62,18 @@ function WebhooksPage() {
         <p className="mt-2 text-sm text-slate-600">
           Total : {status.total} | Reussis : {status.success} | Echoues : {status.failed}
         </p>
+      )}
+      {summary && (
+        <div className="mt-4 grid grid-cols-1 gap-3 rounded bg-white p-3 shadow-sm md:grid-cols-5">
+          <ValidationItem label="Token" ok={summary.token_ok} />
+          <ValidationItem label="Payment request" ok={summary.payment_request_ok} />
+          <ValidationItem label="Callback" ok={summary.callback_ok} />
+          <ValidationItem label="Transaction visible" ok={summary.transaction_visible_ok} />
+          <ValidationItem label="Pret SerdiPay" ok={summary.ready_for_serdipay_review} />
+          <p className="text-xs text-slate-600 md:col-span-5">
+            Derniere transaction : {summary.transaction?.transactionId ?? "-"} / {summary.transaction?.sessionId ?? "-"} / {summary.transaction?.status_display ?? "-"} / {summary.transaction?.amount_display ?? "N/A"} / {summary.transaction?.currency ?? "UNKNOWN"}
+          </p>
+        </div>
       )}
       <div className="mt-4 overflow-x-auto rounded bg-white p-3 shadow-sm">
         <table className="w-full min-w-[1120px] text-left text-sm">
@@ -71,7 +104,9 @@ function WebhooksPage() {
                   <td className="py-2">{payload.transactionId ?? "-"}</td>
                   <td className="py-2">{payload.sessionId ?? "-"}</td>
                   <td className="py-2">{row.status_code ?? "-"}</td>
-                  <td className="max-w-[280px] truncate py-2 text-xs" title={row.payload ?? ""}>{row.payload ?? "-"}</td>
+                  <td className="max-w-[520px] py-2 text-xs">
+                    <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2">{formatPayload(row.payload)}</pre>
+                  </td>
                   <td className="py-2">{row.error_message ?? "-"}</td>
                   <td className="py-2">{formatDate(row.created_at)}</td>
                   <td className="py-2">
@@ -96,6 +131,15 @@ function WebhooksPage() {
 
 export default WebhooksPage;
 
+function ValidationItem({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <div>
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className={`mt-1 text-sm font-semibold ${ok ? "text-emerald-700" : "text-red-700"}`}>{ok ? "OK" : "NOK"}</p>
+    </div>
+  );
+}
+
 function directionLabel(value: string) {
   const labels: Record<string, string> = {
     INBOUND: "Entrant",
@@ -116,5 +160,14 @@ function parsePayload(value: string | undefined): { transactionId?: string; sess
     };
   } catch {
     return {};
+  }
+}
+
+function formatPayload(value: string | undefined) {
+  if (!value) return "-";
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
   }
 }

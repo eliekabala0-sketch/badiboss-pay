@@ -504,7 +504,7 @@ def get_token(
     return last_result
 
 
-def create_payment(phone: str, amount: float, currency: str = "CDF", telecom: str = "AM") -> dict:
+def create_payment(phone: str, amount: float, currency: str, telecom: str = "AM") -> dict:
     token_data = get_token()
     token_response = token_data.get("response", {})
     access_token = _extract_token(token_response) if isinstance(token_response, dict) else None
@@ -548,7 +548,7 @@ def create_payment(phone: str, amount: float, currency: str = "CDF", telecom: st
 def create_test_payment_diagnostic(
     phone: str | None,
     amount: float | None = None,
-    currency: str = "CDF",
+    currency: str | None = None,
     telecom: str = "AM",
 ) -> dict:
     diagnostic = {
@@ -598,7 +598,7 @@ def create_test_payment_diagnostic(
         "merchant_pin": settings.serdipay_pin,
         "clientPhone": phone or settings.serdipay_phone,
         "amount": payment_amount,
-        "currency": currency or "CDF",
+        "currency": str(currency).upper() if currency else None,
         "telecom": telecom or "AM",
     }
     diagnostic["payload_keys_sent"] = sorted(payload.keys())
@@ -610,6 +610,16 @@ def create_test_payment_diagnostic(
                 "authorization_header_present": True,
                 "error_type": "MissingClientPhone",
                 "error_message": "clientPhone is required for the SerdiPay test payload.",
+            }
+        )
+        return diagnostic
+    if not currency:
+        diagnostic.update(
+            {
+                "step": "payload_validation",
+                "authorization_header_present": True,
+                "error_type": "MissingCurrency",
+                "error_message": "currency is required for the SerdiPay test payload.",
             }
         )
         return diagnostic

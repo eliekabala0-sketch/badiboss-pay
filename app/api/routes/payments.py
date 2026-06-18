@@ -19,8 +19,10 @@ router = APIRouter(prefix="/payments", tags=["Payments"])
 
 
 def _normalize_currency(currency: str) -> str:
-    normalized = str(currency or "CDF").upper()
-    return normalized if normalized in {"USD", "CDF"} else "CDF"
+    normalized = str(currency or "").upper()
+    if normalized not in {"USD", "CDF"}:
+        raise HTTPException(status_code=400, detail="currency must be USD or CDF")
+    return normalized
 
 
 def _provider_value(payload: dict, key: str):

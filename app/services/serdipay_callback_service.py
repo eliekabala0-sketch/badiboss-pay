@@ -33,10 +33,14 @@ def _normalized_status(payload: dict[str, Any]) -> str:
     return "pending"
 
 
-def _normalized_currency(payload: dict[str, Any], fallback: str = "CDF") -> str:
+def _normalized_currency(payload: dict[str, Any], fallback: str = "UNKNOWN") -> str:
     value = _nested(payload, "currency") or fallback
     text = str(value).upper()
-    return text if text in {"USD", "CDF"} else fallback
+    return text if text in {"USD", "CDF"} else "UNKNOWN"
+
+
+def _payload_has_value(payload: dict[str, Any], key: str) -> bool:
+    return _nested(payload, key) not in (None, "")
 
 
 def _float_value(payload: dict[str, Any], key: str, fallback: float = 0.0) -> float:
@@ -103,6 +107,8 @@ def _ensure_serdipay_callback_app(db: Session) -> ConnectedApp:
 
 
 def _credit_merchant_balance(db: Session, transaction: Transaction) -> None:
+    if transaction.currency not in {"USD", "CDF"} or transaction.net_amount <= 0:
+        return
     balance = (
         db.query(MerchantBalance)
         .filter(
@@ -128,6 +134,8 @@ def process_serdipay_callback(db: Session, payload: dict[str, Any]) -> dict[str,
     ids = _callback_ids(payload)
     status = _normalized_status(payload)
     raw_payload = _raw_payload(payload)
+    callback_has_amount = _payload_has_value(payload, "amount")
+    callback_has_currency = _payload_has_value(payload, "currency")
 
     transaction = _find_transaction(db, ids)
     if transaction:
@@ -138,6 +146,11 @@ def process_serdipay_callback(db: Session, payload: dict[str, Any]) -> dict[str,
         if ids["session_id"]:
             transaction.provider_session_id = ids["session_id"]
         transaction.raw_payload = raw_payload
+        if transaction.app_id == "serdipay" and not callback_has_amount:
+            transaction.payment_method = "callback_test"
+            transaction.source_application = "SerdiPay callback test"
+        if transaction.app_id == "serdipay" and not callback_has_currency:
+            transaction.currency = "UNKNOWN"
         reference = transaction.reference
         app_id = transaction.app_id
         company_id = transaction.company_id
@@ -149,6 +162,7 @@ def process_serdipay_callback(db: Session, payload: dict[str, Any]) -> dict[str,
         fees = _float_value(payload, "fees", 0.0)
         commission = _float_value(payload, "commission", 0.0)
         net_amount = _float_value(payload, "net_amount", max(amount - fees - commission, 0.0))
+        is_callback_test = not callback_has_amount
         transaction = Transaction(
             reference=reference,
             app_id=callback_app.app_id,
@@ -164,8 +178,8 @@ def process_serdipay_callback(db: Session, payload: dict[str, Any]) -> dict[str,
             fees=fees,
             commission=commission,
             net_amount=net_amount,
-            payment_method="mobile_money",
-            source_application="SerdiPay callback",
+            payment_method="callback_test" if is_callback_test else "mobile_money",
+            source_application="SerdiPay callback test" if is_callback_test else "SerdiPay callback",
             raw_payload=raw_payload,
         )
         db.add(transaction)

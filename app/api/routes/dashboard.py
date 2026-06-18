@@ -20,7 +20,7 @@ from app.models.withdrawal import Withdrawal
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
-CURRENCIES = ("USD", "CDF")
+CURRENCIES = ("USD", "CDF", "UNKNOWN")
 
 
 def _sum_by_currency(db: Session, model, amount_column, *filters) -> dict[str, float]:
@@ -32,7 +32,7 @@ def _sum_by_currency(db: Session, model, amount_column, *filters) -> dict[str, f
     )
     totals = {currency: 0.0 for currency in CURRENCIES}
     for currency, value in rows:
-        currency_key = str(currency or "CDF").upper()
+        currency_key = str(currency or "UNKNOWN").upper()
         totals[currency_key] = float(value or 0.0)
     return totals
 
@@ -46,7 +46,7 @@ def _count_transactions_by_currency(db: Session, *filters) -> dict[str, int]:
     )
     totals = {currency: 0 for currency in CURRENCIES}
     for currency, value in rows:
-        currency_key = str(currency or "CDF").upper()
+        currency_key = str(currency or "UNKNOWN").upper()
         totals[currency_key] = int(value or 0)
     return totals
 

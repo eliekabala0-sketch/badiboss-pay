@@ -17,7 +17,7 @@ class Transaction(Base):
     payer_phone: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     company_id: Mapped[str] = mapped_column(String(120), nullable=False)
     amount: Mapped[float] = mapped_column(Float, nullable=False)
-    currency: Mapped[str] = mapped_column(String(10), default="CDF", nullable=False)
+    currency: Mapped[str] = mapped_column(String(10), default="UNKNOWN", nullable=False)
     status: Mapped[str] = mapped_column(String(30), default="pending", nullable=False)
     provider: Mapped[str] = mapped_column(String(50), default="serdipay", nullable=False)
     provider_reference: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)

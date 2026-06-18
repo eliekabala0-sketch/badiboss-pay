@@ -63,7 +63,7 @@ export type Transaction = {
   user_id: string;
   payer_phone?: string;
   company_id: string;
-  amount: number;
+  amount: number | null;
   currency: string;
   status: string;
   provider: string;

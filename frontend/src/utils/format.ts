@@ -1,9 +1,10 @@
-export function formatMoney(value: number | string | null | undefined, currency = "CDF") {
-  const numberValue = Number(value ?? 0);
+export function formatMoney(value: number | string | null | undefined, currency = "UNKNOWN") {
+  if (value === null || value === undefined) return "N/A";
+  const numberValue = Number(value);
   return new Intl.NumberFormat("fr-FR", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
-  }).format(numberValue) + ` ${currency}`;
+  }).format(numberValue) + ` ${currency || "UNKNOWN"}`;
 }
 
 export function formatDate(value: string | null | undefined) {
@@ -21,12 +22,12 @@ export function statusLabel(value: string | boolean | null | undefined) {
     inactive: "Inactif",
     suspended: "Suspendu",
     pending: "En attente",
-    success: "Réussi",
-    completed: "Terminé",
-    paid: "Payé",
-    failed: "Échoué",
+    success: "success / paye",
+    completed: "Termine",
+    paid: "Paye",
+    failed: "Echoue",
     error: "Erreur",
-    expired: "Expiré",
+    expired: "Expire",
     trial: "Essai gratuit",
   };
   return labels[String(value ?? "").toLowerCase()] ?? (value || "-");
@@ -37,8 +38,8 @@ export function appTypeLabel(value: string) {
     saas: "SaaS abonnement",
     training: "Formation",
     restaurant: "Restaurant",
-    church: "Église",
-    discovery: "Découverte",
+    church: "Eglise",
+    discovery: "Decouverte",
     marketplace: "Marketplace",
     other: "Autre",
   };

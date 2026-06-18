@@ -26,7 +26,7 @@ async def legacy_test_payment(request: Request):
     return create_test_payment_diagnostic(
         phone=body.get("clientPhone") or body.get("phone"),
         amount=body.get("amount"),
-        currency=body.get("currency", "CDF"),
+        currency=body.get("currency"),
         telecom=body.get("telecom", "AM"),
     )
 

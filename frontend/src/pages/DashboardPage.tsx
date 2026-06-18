@@ -50,6 +50,7 @@ function DashboardPage() {
             <Card label="Transactions echouees" value={stats.status_counts?.failed ?? 0} />
             <Card label="Transactions en attente" value={stats.status_counts?.pending ?? 0} />
             <Card label="Transactions totales" value={stats.total_transactions} />
+            <Card label="Transactions devise UNKNOWN" value={stats.by_currency?.UNKNOWN?.total_transactions ?? 0} />
             <Card label="Revenus aujourd'hui USD" value={formatMoney(stats.by_currency?.USD?.revenue_today ?? 0, "USD")} />
             <Card label="Revenus aujourd'hui CDF" value={formatMoney(stats.by_currency?.CDF?.revenue_today ?? 0, "CDF")} />
             <Card label="Revenus ce mois USD" value={formatMoney(stats.by_currency?.USD?.revenue_month ?? 0, "USD")} />

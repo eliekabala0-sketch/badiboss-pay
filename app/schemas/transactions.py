@@ -12,7 +12,7 @@ class PaymentCreateRequest(BaseModel):
     company_id: str
     phone: str
     amount: float = Field(gt=0)
-    currency: str = "CDF"
+    currency: str
     telecom: str = "AM"
     payment_method: str = "mobile_money"
     source_application: Optional[str] = None

@@ -72,6 +72,7 @@ function TransactionsPage() {
           <option value="">Toutes les devises</option>
           <option value="USD">USD</option>
           <option value="CDF">CDF</option>
+          <option value="UNKNOWN">UNKNOWN</option>
         </select>
         <input className="rounded border px-3 py-2" placeholder="Telephone" value={filters.phone} onChange={(event) => updateFilter("phone", event.target.value)} />
         <input className="rounded border px-3 py-2" type="date" value={filters.date_from} onChange={(event) => updateFilter("date_from", event.target.value)} />
@@ -110,14 +111,14 @@ function TransactionsPage() {
                 <td className="py-3">{tx.app_id}</td>
                 <td className="py-3">{tx.company_id}</td>
                 <td className="py-3">{tx.payer_phone ?? "-"}</td>
-                <td className="py-3 font-semibold">{tx.currency}</td>
-                <td className="py-3">{formatMoney(tx.amount, tx.currency)}</td>
-                <td className="py-3">{formatMoney(tx.fees, tx.currency)}</td>
-                <td className="py-3">{formatMoney(tx.commission, tx.currency)}</td>
-                <td className="py-3">{formatMoney(tx.net_amount, tx.currency)}</td>
+                <td className="py-3 font-semibold">{tx.currency || "UNKNOWN"}</td>
+                <td className="py-3">{amountDisplay(tx)}</td>
+                <td className="py-3">{isCallbackTest(tx) ? "N/A" : formatMoney(tx.fees, tx.currency)}</td>
+                <td className="py-3">{isCallbackTest(tx) ? "N/A" : formatMoney(tx.commission, tx.currency)}</td>
+                <td className="py-3">{isCallbackTest(tx) ? "N/A" : formatMoney(tx.net_amount, tx.currency)}</td>
                 <td className="py-3">{statusLabel(tx.status)}</td>
                 <td className="py-3 text-xs">
-                  <p>{tx.source_application ?? "-"}</p>
+                  <p>{isCallbackTest(tx) ? "callback test SerdiPay" : (tx.source_application ?? "-")}</p>
                   <p>{tx.city ?? "-"} / {tx.country ?? "-"}</p>
                   <p>{tx.public_ip ?? "-"} - {tx.device_type ?? tx.device ?? "-"}</p>
                   <p>{tx.operating_system ?? "-"} - {tx.browser ?? "-"}</p>
@@ -152,6 +153,15 @@ function TransactionsPage() {
 
 function cleanFilters(filters: Record<string, string>) {
   return Object.fromEntries(Object.entries(filters).filter(([, value]) => Boolean(value)));
+}
+
+function isCallbackTest(tx: PaginatedTransactions["items"][number]) {
+  return tx.payment_method === "callback_test" || tx.source_application === "SerdiPay callback test";
+}
+
+function amountDisplay(tx: PaginatedTransactions["items"][number]) {
+  if (isCallbackTest(tx)) return "N/A";
+  return formatMoney(tx.amount, tx.currency || "UNKNOWN");
 }
 
 export default TransactionsPage;

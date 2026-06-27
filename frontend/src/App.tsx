@@ -7,6 +7,7 @@ import AnalyticsPage from "./pages/AnalyticsPage";
 import CommissionsPage from "./pages/CommissionsPage";
 import DashboardPage from "./pages/DashboardPage";
 import LoginPage from "./pages/LoginPage";
+import PaymentLinksPage from "./pages/PaymentLinksPage";
 import SecurityPage from "./pages/SecurityPage";
 import SettlementsPage from "./pages/SettlementsPage";
 import SubscriptionsPage from "./pages/SubscriptionsPage";
@@ -29,6 +30,7 @@ function App() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/apps" element={<AppsPage />} />
+        <Route path="/payment-links" element={<PaymentLinksPage />} />
         <Route path="/transactions" element={<TransactionsPage />} />
         <Route path="/subscriptions" element={<SubscriptionsPage />} />
         <Route path="/wallets" element={<WalletsPage />} />

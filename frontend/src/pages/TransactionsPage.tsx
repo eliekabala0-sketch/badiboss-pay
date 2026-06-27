@@ -129,7 +129,8 @@ function TransactionsPage() {
                 <td className="py-3">{isCallbackTest(tx) ? "N/A" : formatMoney(tx.net_amount, tx.currency)}</td>
                 <td className="py-3">{statusLabel(tx.status)}</td>
                 <td className="py-3 text-xs">
-                  <p>{isCallbackTest(tx) ? "callback test SerdiPay" : (tx.source_application ?? "-")}</p>
+                  <p>{tx.payment_link_id ? "Paiement par lien" : isCallbackTest(tx) ? "callback test SerdiPay" : (tx.source_application ?? "-")}</p>
+                  {tx.payment_link_id && <p>Lien #{tx.payment_link_id}</p>}
                   <p>{tx.city ?? "-"} / {tx.country ?? "-"}</p>
                   <p>{tx.public_ip ?? "-"} - {tx.device_type ?? tx.device ?? "-"}</p>
                   <p>{tx.operating_system ?? "-"} - {tx.browser ?? "-"}</p>

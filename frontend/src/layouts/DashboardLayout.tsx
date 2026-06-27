@@ -5,6 +5,7 @@ import { clearToken } from "../auth";
 const navItems = [
   { to: "/", label: "Tableau de bord" },
   { to: "/apps", label: "Applications" },
+  { to: "/payment-links", label: "Liens de paiement" },
   { to: "/transactions", label: "Ventes / Paiements" },
   { to: "/subscriptions", label: "Abonnements" },
   { to: "/analytics", label: "Utilisateurs & analytics" },

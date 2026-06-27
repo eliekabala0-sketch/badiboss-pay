@@ -22,12 +22,34 @@ def ensure_runtime_schema(engine: Engine) -> None:
     transaction_columns = {column["name"] for column in inspector.get_columns("transactions")}
     app_columns = {column["name"] for column in inspector.get_columns("connected_apps")} if "connected_apps" in table_names else set()
     statements = []
+    if "payment_links" not in table_names:
+        statements.append(
+            """
+            CREATE TABLE payment_links (
+                id INTEGER PRIMARY KEY,
+                slug VARCHAR(160) NOT NULL,
+                title VARCHAR(255) NOT NULL,
+                description TEXT,
+                amount FLOAT NOT NULL,
+                currency VARCHAR(10) NOT NULL,
+                expires_at TIMESTAMP,
+                max_uses INTEGER,
+                success_redirect_url VARCHAR(500),
+                failure_redirect_url VARCHAR(500),
+                status VARCHAR(30) NOT NULL,
+                is_active BOOLEAN NOT NULL,
+                created_at TIMESTAMP NOT NULL
+            )
+            """
+        )
     if "app_slug" not in app_columns:
         statements.append("ALTER TABLE connected_apps ADD COLUMN app_slug VARCHAR(120)")
     if "webhook_secret" not in app_columns:
         statements.append("ALTER TABLE connected_apps ADD COLUMN webhook_secret VARCHAR(128)")
     if "customer_name" not in transaction_columns:
         statements.append("ALTER TABLE transactions ADD COLUMN customer_name VARCHAR(255)")
+    if "payment_link_id" not in transaction_columns:
+        statements.append("ALTER TABLE transactions ADD COLUMN payment_link_id INTEGER")
     if "provider_session_id" not in transaction_columns:
         statements.append("ALTER TABLE transactions ADD COLUMN provider_session_id VARCHAR(120)")
     if "raw_payload" not in transaction_columns:
@@ -68,6 +90,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
                     {"app_slug": slug, "webhook_secret": webhook_secret, "id": row["id"]},
                 )
             connection.execute(text("CREATE INDEX IF NOT EXISTS ix_connected_apps_app_slug ON connected_apps (app_slug)"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_payment_links_slug ON payment_links (slug)"))
         connection.execute(
             text(
                 """

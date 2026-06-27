@@ -13,6 +13,7 @@ class Transaction(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     reference: Mapped[str] = mapped_column(String(80), unique=True, index=True, nullable=False)
     app_id: Mapped[str] = mapped_column(String(64), ForeignKey("connected_apps.app_id"), nullable=False)
+    payment_link_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     user_id: Mapped[str] = mapped_column(String(120), nullable=False)
     customer_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     payer_phone: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)

@@ -80,6 +80,9 @@ async def request_context_middleware(request: Request, call_next):
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Process-Time-Ms"] = str(duration_ms)
 
+    app_id = getattr(request.state, "log_app_id", app_id)
+    company_id = getattr(request.state, "log_company_id", company_id)
+
     try:
         db.add(
             ApiLog(

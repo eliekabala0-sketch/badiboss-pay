@@ -73,6 +73,7 @@ export type Transaction = {
   id: number;
   reference: string;
   app_id: string;
+  payment_link_id?: number | null;
   user_id: string;
   customer_name?: string;
   payer_phone?: string;
@@ -127,4 +128,55 @@ export type CompanySummary = {
   applications: number;
   transactions: number;
   subscriptions: number;
+};
+
+export type PaymentLink = {
+  id: number;
+  slug: string;
+  title: string;
+  description: string;
+  amount: number;
+  currency: string;
+  status: string;
+  is_active: boolean;
+  expires_at?: string | null;
+  max_uses?: number | null;
+  success_redirect_url: string;
+  failure_redirect_url: string;
+  created_at: string;
+  public_url: string;
+  payments_count: number;
+  total_usd: number;
+  total_cdf: number;
+  success_count: number;
+  failed_count: number;
+  pending_count: number;
+};
+
+export type AppApiJournalItem = {
+  date: string;
+  route: string;
+  status_code?: number | null;
+  reference: string;
+  transaction_id: string;
+  phone_masked?: string | null;
+  amount: number;
+  currency: string;
+  telecom?: string | null;
+  result: string;
+};
+
+export type WebhookLog = {
+  id: number;
+  direction: string;
+  provider: string;
+  event_type?: string | null;
+  reference?: string | null;
+  app_id?: string | null;
+  company_id?: string | null;
+  status_code?: number | null;
+  payload?: string | null;
+  response_body?: string | null;
+  error_message?: string | null;
+  created_at: string;
 };

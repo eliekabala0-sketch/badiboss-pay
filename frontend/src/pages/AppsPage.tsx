@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Dispatch, FormEvent, SetStateAction } from "react";
+import type { Dispatch, FormEvent, ReactNode, SetStateAction } from "react";
 
 import { apiClient } from "../api/client";
-import { CompanySummary, ConnectedApp } from "../types/api";
+import { AppApiJournalItem, CompanySummary, ConnectedApp, WebhookLog } from "../types/api";
 import { appTypeLabel, commissionLabel, formatDate, formatMoney, statusLabel } from "../utils/format";
 
 const emptyApp = {
@@ -38,6 +38,13 @@ function AppsPage() {
   const [newApp, setNewApp] = useState(emptyApp);
   const [editingAppId, setEditingAppId] = useState<string | null>(null);
   const [createdApp, setCreatedApp] = useState<ConnectedApp | null>(null);
+  const [guideData, setGuideData] = useState<Record<string, unknown> | null>(null);
+  const [testApp, setTestApp] = useState<ConnectedApp | null>(null);
+  const [testPayload, setTestPayload] = useState({ clientPhone: "", amount: 5, currency: "USD", telecom: "OM", description: "Test application" });
+  const [testResult, setTestResult] = useState<Record<string, unknown> | null>(null);
+  const [journalApp, setJournalApp] = useState<ConnectedApp | null>(null);
+  const [apiJournal, setApiJournal] = useState<AppApiJournalItem[]>([]);
+  const [callbackJournal, setCallbackJournal] = useState<WebhookLog[]>([]);
 
   const selectedApp = useMemo(() => apps.find((app) => app.app_id === editingAppId) ?? null, [apps, editingAppId]);
 
@@ -103,15 +110,27 @@ function AppsPage() {
     loadApps();
   }
 
-  async function downloadGuide(app: ConnectedApp) {
+  async function showGuide(app: ConnectedApp) {
     const response = await apiClient.get(`/apps/${app.app_id}/integration-guide`);
-    const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${app.app_slug}-integration-guide.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+    setGuideData(response.data);
+  }
+
+  async function runAppTest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!testApp) return;
+    setTestResult(null);
+    const response = await apiClient.post<Record<string, unknown>>(`/apps/${testApp.app_id}/test-payment`, testPayload);
+    setTestResult(response.data);
+  }
+
+  async function showJournals(app: ConnectedApp) {
+    setJournalApp(app);
+    const [apiResponse, callbackResponse] = await Promise.all([
+      apiClient.get<AppApiJournalItem[]>(`/apps/${app.app_id}/api-journal`),
+      apiClient.get<WebhookLog[]>(`/apps/${app.app_id}/callbacks`),
+    ]);
+    setApiJournal(apiResponse.data);
+    setCallbackJournal(callbackResponse.data);
   }
 
   function copy(value: string, label: string) {
@@ -232,7 +251,9 @@ function AppsPage() {
                       )}
                       <button className="rounded bg-indigo-600 px-2 py-1 text-xs text-white" onClick={() => regenerateSecret(app.app_id, "api")} type="button">Regenerer secret API</button>
                       <button className="rounded bg-purple-600 px-2 py-1 text-xs text-white" onClick={() => regenerateSecret(app.app_id, "webhook")} type="button">Regenerer webhook</button>
-                      <button className="rounded bg-blue-600 px-2 py-1 text-xs text-white" onClick={() => downloadGuide(app)} type="button">Guide</button>
+                      <button className="rounded bg-blue-600 px-2 py-1 text-xs text-white" onClick={() => showGuide(app)} type="button">Guide</button>
+                      {app.status === "active" && <button className="rounded bg-emerald-600 px-2 py-1 text-xs text-white" onClick={() => { setTestApp(app); setTestResult(null); }} type="button">Tester</button>}
+                      <button className="rounded bg-slate-600 px-2 py-1 text-xs text-white" onClick={() => showJournals(app)} type="button">Journaux</button>
                     </div>
                   </td>
                 </tr>
@@ -293,6 +314,60 @@ function AppsPage() {
           )}
         </aside>
       </div>
+
+      {guideData && (
+        <Modal title="Guide d'integration" onClose={() => setGuideData(null)}>
+          <pre className="max-h-[70vh] overflow-auto rounded bg-slate-950 p-3 text-xs text-white">{JSON.stringify(guideData, null, 2)}</pre>
+        </Modal>
+      )}
+
+      {testApp && (
+        <Modal title={`Tester ${testApp.name}`} onClose={() => setTestApp(null)}>
+          <form className="grid grid-cols-1 gap-3 md:grid-cols-2" onSubmit={runAppTest}>
+            <input className="rounded border px-3 py-2" placeholder="Telephone client" value={testPayload.clientPhone} onChange={(event) => setTestPayload((prev) => ({ ...prev, clientPhone: event.target.value }))} required />
+            <input className="rounded border px-3 py-2" type="number" min="0" step="0.01" value={testPayload.amount} onChange={(event) => setTestPayload((prev) => ({ ...prev, amount: Number(event.target.value) }))} required />
+            <select className="rounded border px-3 py-2" value={testPayload.currency} onChange={(event) => setTestPayload((prev) => ({ ...prev, currency: event.target.value }))}>
+              <option value="USD">USD</option>
+              <option value="CDF">CDF</option>
+            </select>
+            <select className="rounded border px-3 py-2" value={testPayload.telecom} onChange={(event) => setTestPayload((prev) => ({ ...prev, telecom: event.target.value }))}>
+              <option value="OM">OM</option>
+              <option value="AM">AM</option>
+              <option value="MP">MP</option>
+              <option value="Afrimoney">Afrimoney</option>
+            </select>
+            <input className="rounded border px-3 py-2 md:col-span-2" value={testPayload.description} onChange={(event) => setTestPayload((prev) => ({ ...prev, description: event.target.value }))} />
+            <button className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white" type="submit">Lancer le test</button>
+          </form>
+          {testResult && <pre className="mt-3 max-h-80 overflow-auto rounded bg-slate-950 p-3 text-xs text-white">{JSON.stringify(testResult, null, 2)}</pre>}
+        </Modal>
+      )}
+
+      {journalApp && (
+        <Modal title={`Journaux - ${journalApp.name}`} onClose={() => setJournalApp(null)}>
+          <h4 className="font-semibold">Journal API</h4>
+          <div className="mt-2 max-h-64 overflow-auto">
+            {apiJournal.map((item) => (
+              <div className="mb-2 rounded border p-2 text-xs" key={`${item.reference}-${item.date}`}>
+                <p className="font-medium">{item.reference} - {item.result}</p>
+                <p>{formatDate(item.date)} | {item.route} | HTTP {item.status_code ?? "-"}</p>
+                <p>{item.phone_masked ?? "-"} | {formatMoney(item.amount, item.currency)} | {item.telecom ?? "-"}</p>
+              </div>
+            ))}
+            {apiJournal.length === 0 && <p className="text-sm text-slate-500">Aucun appel API enregistre.</p>}
+          </div>
+          <h4 className="mt-4 font-semibold">Callbacks</h4>
+          <div className="mt-2 max-h-64 overflow-auto">
+            {callbackJournal.map((item) => (
+              <details className="mb-2 rounded border p-2 text-xs" key={item.id}>
+                <summary>{formatDate(item.created_at)} | {item.direction} | HTTP {item.status_code ?? "-"} | {item.reference ?? "-"}</summary>
+                <pre className="mt-2 whitespace-pre-wrap break-all rounded bg-slate-100 p-2">{item.payload ?? "{}"}</pre>
+              </details>
+            ))}
+            {callbackJournal.length === 0 && <p className="text-sm text-slate-500">Aucun callback enregistre.</p>}
+          </div>
+        </Modal>
+      )}
     </section>
   );
 }
@@ -335,6 +410,20 @@ function SecretRow({ label, value, onCopy }: { label: string; value: string; onC
       <p className="font-semibold">{label}</p>
       <p className="break-all text-slate-700">{value}</p>
       <button className="mt-2 rounded bg-slate-800 px-2 py-1 text-xs text-white" onClick={() => onCopy(value, label)} type="button">Copier</button>
+    </div>
+  );
+}
+
+function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-slate-950/50 p-4">
+      <div className="mt-8 w-full max-w-4xl rounded bg-white p-4 shadow-xl">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="font-semibold">{title}</h3>
+          <button className="rounded border px-3 py-1 text-sm" onClick={onClose} type="button">Fermer</button>
+        </div>
+        {children}
+      </div>
     </div>
   );
 }

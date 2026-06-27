@@ -7,6 +7,7 @@ from app.models.failed_request import FailedRequest
 from app.models.ip_blacklist import IpBlacklist
 from app.models.merchant_balance import MerchantBalance
 from app.models.merchant_wallet import MerchantWallet
+from app.models.payment_link import PaymentLink
 from app.models.security_log import SecurityLog
 from app.models.settlement import Settlement
 from app.models.subscription import Subscription
@@ -24,6 +25,7 @@ __all__ = [
     "IpBlacklist",
     "MerchantBalance",
     "MerchantWallet",
+    "PaymentLink",
     "SecurityLog",
     "Settlement",
     "Subscription",

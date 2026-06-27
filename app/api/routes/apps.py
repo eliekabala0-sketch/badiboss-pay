@@ -1,20 +1,34 @@
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import func
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from typing import Optional
+from pydantic import BaseModel, Field
 
 from app.api.deps import get_db, require_roles
 from app.core.config import settings
 from app.core.roles import AdminRole
 from app.models.connected_app import ConnectedApp
 from app.models.transaction import Transaction
+from app.models.webhook_log import WebhookLog
 from app.schemas.apps import ConnectedAppCreate, ConnectedAppResponse, ConnectedAppUpdate
+from app.schemas.transactions import AppPaymentRequest
 from app.models.subscription import Subscription
+from app.api.routes.public_apps import create_app_payment
 from app.utils.keys import generate_api_key, generate_app_suffix, generate_secret_key, generate_webhook_secret, slugify_app_name
 
 router = APIRouter(prefix="/apps", tags=["Connected Apps"])
+
+
+class AppTestPaymentRequest(BaseModel):
+    clientPhone: str = Field(min_length=8, max_length=40)
+    amount: float = Field(gt=0)
+    currency: str
+    telecom: str = "OM"
+    description: str = "Test application"
 
 
 def _public_origin() -> str:
@@ -284,6 +298,9 @@ def integration_guide(
             "'X-API-Key': '<api_key>', 'X-API-Secret': '<api_secret>' }, body: JSON.stringify(payload) })"
         ),
         "php_example": "$response = file_get_contents($paymentUrl, false, stream_context_create(['http' => ['method' => 'POST', 'header' => \"Content-Type: application/json\\r\\nX-API-Key: <api_key>\\r\\nX-API-Secret: <api_secret>\", 'content' => json_encode($payload)]]));",
+        "laravel_example": "Http::withHeaders(['X-API-Key' => '<api_key>', 'X-API-Secret' => '<api_secret>'])->post($paymentUrl, $payload);",
+        "flutter_dart_example": "await http.post(Uri.parse(paymentUrl), headers: {'Content-Type': 'application/json', 'X-API-Key': apiKey, 'X-API-Secret': apiSecret}, body: jsonEncode(payload));",
+        "python_requests_example": "requests.post(payment_url, headers={'X-API-Key': api_key, 'X-API-Secret': api_secret}, json=payload)",
         "callback_format": callback_example,
         "security_rules": [
             "Ne jamais exposer api_secret cote navigateur ou page publique.",
@@ -298,6 +315,99 @@ def integration_guide(
         },
         "observed_minimums": {"USD": 5, "CDF": 500},
     }
+
+
+@router.post("/{app_id}/test-payment")
+def test_connected_app(
+    app_id: str,
+    payload: AppTestPaymentRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles(AdminRole.SUPER_ADMIN, AdminRole.SUPPORT_ADMIN)),
+):
+    app = db.query(ConnectedApp).filter(ConnectedApp.app_id == app_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application introuvable")
+    if app.status != "active":
+        raise HTTPException(status_code=403, detail="Application inactive")
+    app_payload = AppPaymentRequest(
+        reference=f"TEST-{app.app_slug.upper()}-{generate_app_suffix().upper()}",
+        customer_id="admin_test",
+        customer_name="Admin Test",
+        clientPhone=payload.clientPhone,
+        amount=payload.amount,
+        currency=payload.currency,
+        telecom=payload.telecom,
+        description=payload.description,
+        metadata={"source": "admin_test"},
+    )
+    return create_app_payment(
+        app_slug=app.app_slug,
+        payload=app_payload,
+        request=request,
+        db=db,
+        x_api_key=app.api_key,
+        x_api_secret=app.secret_key,
+    )
+
+
+@router.get("/{app_id}/api-journal")
+def app_api_journal(
+    app_id: str,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles(AdminRole.SUPER_ADMIN, AdminRole.SUPPORT_ADMIN, AdminRole.FINANCE_ADMIN, AdminRole.VIEWER)),
+):
+    app = db.query(ConnectedApp).filter(ConnectedApp.app_id == app_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application introuvable")
+    transactions = (
+        db.query(Transaction)
+        .filter(Transaction.app_id == app_id)
+        .order_by(Transaction.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    journal = []
+    for tx in transactions:
+        provider_status_code = None
+        if tx.raw_payload:
+            try:
+                provider_status_code = json.loads(tx.raw_payload).get("provider_status_code")
+            except ValueError:
+                provider_status_code = None
+        journal.append(
+            {
+                "date": tx.created_at,
+                "route": f"/api/v1/apps/{app.app_slug}/payments",
+                "status_code": provider_status_code,
+                "reference": tx.reference,
+                "transaction_id": str(tx.id),
+                "phone_masked": _mask_secret(tx.payer_phone, visible=4),
+                "amount": tx.amount,
+                "currency": tx.currency,
+                "telecom": tx.payment_method,
+                "result": tx.status,
+            }
+        )
+    return journal
+
+
+@router.get("/{app_id}/callbacks")
+def app_callbacks(
+    app_id: str,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles(AdminRole.SUPER_ADMIN, AdminRole.SUPPORT_ADMIN, AdminRole.FINANCE_ADMIN, AdminRole.VIEWER)),
+):
+    app = db.query(ConnectedApp).filter(ConnectedApp.app_id == app_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application introuvable")
+    return (
+        db.query(WebhookLog)
+        .filter(WebhookLog.app_id == app_id)
+        .order_by(WebhookLog.created_at.desc())
+        .limit(100)
+        .all()
+    )
 
 
 @router.get("/companies")

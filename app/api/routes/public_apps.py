@@ -75,6 +75,8 @@ def create_app_payment(
     x_api_secret: Optional[str] = Header(default=None, alias="X-API-Secret"),
 ):
     app = _get_authenticated_app(db, app_slug, x_api_key, x_api_secret)
+    request.state.log_app_id = app.app_id
+    request.state.log_company_id = app.company_id
     existing = db.query(Transaction).filter(Transaction.reference == payload.reference).first()
     if existing:
         raise HTTPException(status_code=409, detail="reference already exists")
@@ -166,6 +168,8 @@ def create_app_payment(
         "message": "Payment request sent" if tx.status != "failed" else "Payment request failed",
         "currency": tx.currency,
         "amount": tx.amount,
+        "provider_status_code": provider_status_code,
+        "provider_response": provider_response,
     }
 
 

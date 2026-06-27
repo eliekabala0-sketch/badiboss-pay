@@ -11,9 +11,11 @@ class ConnectedApp(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     app_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    app_slug: Mapped[str] = mapped_column(String(120), unique=True, index=True, nullable=False)
     company_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
     api_key: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     secret_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    webhook_secret: Mapped[str] = mapped_column(String(128), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     app_type: Mapped[str] = mapped_column(String(100), nullable=False)
     callback_url: Mapped[str] = mapped_column(String(500), nullable=False)

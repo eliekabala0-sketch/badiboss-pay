@@ -9,6 +9,7 @@ type TransactionFilters = {
   company_id: string;
   status: string;
   currency: string;
+  telecom: string;
   phone: string;
   date_from: string;
   date_to: string;
@@ -24,6 +25,7 @@ function TransactionsPage() {
     company_id: "",
     status: "",
     currency: "",
+    telecom: "",
     phone: "",
     date_from: "",
     date_to: "",
@@ -74,6 +76,13 @@ function TransactionsPage() {
           <option value="CDF">CDF</option>
           <option value="UNKNOWN">UNKNOWN</option>
         </select>
+        <select className="rounded border px-3 py-2" value={filters.telecom} onChange={(event) => updateFilter("telecom", event.target.value)}>
+          <option value="">Tous telecom</option>
+          <option value="OM">OM</option>
+          <option value="AM">AM</option>
+          <option value="MP">MP</option>
+          <option value="Afrimoney">Afrimoney</option>
+        </select>
         <input className="rounded border px-3 py-2" placeholder="Telephone" value={filters.phone} onChange={(event) => updateFilter("phone", event.target.value)} />
         <input className="rounded border px-3 py-2" type="date" value={filters.date_from} onChange={(event) => updateFilter("date_from", event.target.value)} />
         <input className="rounded border px-3 py-2" type="date" value={filters.date_to} onChange={(event) => updateFilter("date_to", event.target.value)} />
@@ -83,7 +92,7 @@ function TransactionsPage() {
       </div>
 
       <div className="mt-4 overflow-x-auto rounded bg-white p-3 shadow-sm">
-        <table className="w-full min-w-[1480px] text-left text-sm">
+        <table className="w-full min-w-[1580px] text-left text-sm">
           <thead>
             <tr className="border-b">
               <th className="py-2">Reference</th>
@@ -92,6 +101,7 @@ function TransactionsPage() {
               <th className="py-2">Application</th>
               <th className="py-2">Entreprise</th>
               <th className="py-2">Telephone</th>
+              <th className="py-2">Telecom</th>
               <th className="py-2">Devise</th>
               <th className="py-2">Montant brut</th>
               <th className="py-2">Frais fournisseur</th>
@@ -111,6 +121,7 @@ function TransactionsPage() {
                 <td className="py-3">{tx.app_id}</td>
                 <td className="py-3">{tx.company_id}</td>
                 <td className="py-3">{tx.payer_phone ?? "-"}</td>
+                <td className="py-3">{tx.payment_method ?? "-"}</td>
                 <td className="py-3 font-semibold">{tx.currency || "UNKNOWN"}</td>
                 <td className="py-3">{amountDisplay(tx)}</td>
                 <td className="py-3">{isCallbackTest(tx) ? "N/A" : formatMoney(tx.fees, tx.currency)}</td>
@@ -128,7 +139,7 @@ function TransactionsPage() {
             ))}
             {(transactions?.items ?? []).length === 0 && (
               <tr>
-                <td className="py-6 text-center text-slate-500" colSpan={14}>Aucune vente trouvee.</td>
+                <td className="py-6 text-center text-slate-500" colSpan={15}>Aucune vente trouvee.</td>
               </tr>
             )}
           </tbody>

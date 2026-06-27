@@ -19,6 +19,7 @@ def list_transactions(
     company_id: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
     currency: Optional[str] = Query(default=None),
+    telecom: Optional[str] = Query(default=None),
     user_id: Optional[str] = Query(default=None),
     phone: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
@@ -38,6 +39,8 @@ def list_transactions(
         query = query.filter(Transaction.status == status)
     if currency:
         query = query.filter(Transaction.currency == currency.upper())
+    if telecom:
+        query = query.filter(Transaction.payment_method == telecom)
     if user_id:
         query = query.filter(Transaction.user_id == user_id)
     if phone:
@@ -74,6 +77,7 @@ def export_transactions_csv(
     company_id: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
     currency: Optional[str] = Query(default=None),
+    telecom: Optional[str] = Query(default=None),
     phone: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
     date_from: Optional[date] = Query(default=None),
@@ -90,6 +94,8 @@ def export_transactions_csv(
         query = query.filter(Transaction.status == status)
     if currency:
         query = query.filter(Transaction.currency == currency.upper())
+    if telecom:
+        query = query.filter(Transaction.payment_method == telecom)
     if phone:
         query = query.filter(Transaction.payer_phone == phone)
     if search:
@@ -118,6 +124,7 @@ def export_transactions_csv(
             "company_id",
             "user_id",
             "payer_phone",
+            "telecom",
             "amount",
             "amount_display",
             "currency",
@@ -146,6 +153,7 @@ def export_transactions_csv(
                 row.company_id,
                 row.user_id,
                 row.payer_phone or "",
+                row.payment_method or "",
                 row.amount,
                 "N/A" if row.payment_method == "callback_test" else row.amount,
                 row.currency,

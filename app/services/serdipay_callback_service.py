@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.models.commission import Commission
 from app.models.connected_app import ConnectedApp
 from app.models.merchant_balance import MerchantBalance
 from app.models.transaction import Transaction
@@ -89,9 +91,11 @@ def _ensure_serdipay_callback_app(db: Session) -> ConnectedApp:
         return app
     app = ConnectedApp(
         app_id="serdipay",
+        app_slug="serdipay",
         company_id="serdipay",
         api_key="internal-serdipay-callback",
         secret_key="internal-serdipay-callback",
+        webhook_secret="internal-serdipay-callback",
         name="SerdiPay callbacks",
         app_type="provider",
         callback_url="",
@@ -130,6 +134,32 @@ def _credit_merchant_balance(db: Session, transaction: Transaction) -> None:
     balance.available_balance += transaction.net_amount
 
 
+def _record_commission(db: Session, transaction: Transaction) -> None:
+    if transaction.commission <= 0 or transaction.currency not in {"USD", "CDF"}:
+        return
+    existing = (
+        db.query(Commission)
+        .filter(Commission.transaction_reference == transaction.reference)
+        .first()
+    )
+    if existing:
+        return
+    app = db.query(ConnectedApp).filter(ConnectedApp.app_id == transaction.app_id).first()
+    if not app:
+        return
+    db.add(
+        Commission(
+            app_id=transaction.app_id,
+            company_id=transaction.company_id,
+            transaction_reference=transaction.reference,
+            commission_type=app.commission_type,
+            commission_value=app.commission_value,
+            amount_collected=transaction.commission,
+            currency=transaction.currency,
+        )
+    )
+
+
 def process_serdipay_callback(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     ids = _callback_ids(payload)
     status = _normalized_status(payload)
@@ -146,6 +176,7 @@ def process_serdipay_callback(db: Session, payload: dict[str, Any]) -> dict[str,
         if ids["session_id"]:
             transaction.provider_session_id = ids["session_id"]
         transaction.raw_payload = raw_payload
+        transaction.updated_at = datetime.now(timezone.utc)
         if transaction.app_id == "serdipay" and not callback_has_amount:
             transaction.payment_method = "callback_test"
             transaction.source_application = "SerdiPay callback test"
@@ -167,6 +198,7 @@ def process_serdipay_callback(db: Session, payload: dict[str, Any]) -> dict[str,
             reference=reference,
             app_id=callback_app.app_id,
             user_id=ids["session_id"] or ids["transaction_id"] or "serdipay-callback",
+            customer_name="SerdiPay callback",
             payer_phone=str(_nested(payload, "clientPhone") or _nested(payload, "phone") or ""),
             company_id=callback_app.company_id,
             amount=amount,
@@ -189,6 +221,7 @@ def process_serdipay_callback(db: Session, payload: dict[str, Any]) -> dict[str,
         action = "created"
 
     if transaction.status == "success" and previous_status != "success":
+        _record_commission(db, transaction)
         _credit_merchant_balance(db, transaction)
 
     db.commit()

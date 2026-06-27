@@ -42,9 +42,11 @@ export type CurrencyStats = {
 export type ConnectedApp = {
   id: number;
   app_id: string;
+  app_slug: string;
   company_id: string;
   api_key: string;
   secret_key: string;
+  webhook_secret: string;
   name: string;
   app_type: string;
   callback_url: string;
@@ -54,6 +56,17 @@ export type ConnectedApp = {
   commission_type: string;
   commission_value: number;
   created_at: string;
+  payment_url: string;
+  status_url: string;
+  callback_badiboss_pay: string;
+  transactions_count: number;
+  total_usd: number;
+  total_cdf: number;
+  success_count: number;
+  failed_count: number;
+  pending_count: number;
+  api_secret_once?: string | null;
+  webhook_secret_once?: string | null;
 };
 
 export type Transaction = {
@@ -61,6 +74,7 @@ export type Transaction = {
   reference: string;
   app_id: string;
   user_id: string;
+  customer_name?: string;
   payer_phone?: string;
   company_id: string;
   amount: number | null;
@@ -70,6 +84,8 @@ export type Transaction = {
   provider_reference?: string;
   provider_session_id?: string;
   raw_payload?: string;
+  callback_url?: string;
+  metadata_json?: string;
   fees: number;
   commission: number;
   net_amount: number;
@@ -83,6 +99,7 @@ export type Transaction = {
   device_type?: string;
   source_application?: string;
   created_at: string;
+  updated_at: string;
 };
 
 export type PaginatedTransactions = {

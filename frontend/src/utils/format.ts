@@ -35,6 +35,8 @@ export function statusLabel(value: string | boolean | null | undefined) {
 
 export function appTypeLabel(value: string) {
   const labels: Record<string, string> = {
+    app: "App",
+    web: "Web",
     saas: "SaaS abonnement",
     training: "Formation",
     restaurant: "Restaurant",

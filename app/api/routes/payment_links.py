@@ -281,14 +281,15 @@ def public_payment_link(slug: str, db: Session = Depends(get_db)):
           input, select {{ width: 100%; box-sizing: border-box; margin-top: 6px; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; }}
           button {{ width: 100%; margin-top: 20px; padding: 12px; border: 0; border-radius: 6px; background: #2563eb; color: white; font-weight: 700; }}
           button:disabled {{ background: #94a3b8; }}
-          .brand {{ color: #2563eb; font-weight: 800; }}
+          .brand {{ display: inline-flex; align-items: center; gap: 10px; color: #2563eb; font-weight: 800; }}
+          .mark {{ display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; background: #2563eb; color: white; }}
           .amount {{ font-size: 28px; font-weight: 800; margin: 8px 0; }}
           .note {{ color: #64748b; }}
         </style>
       </head>
       <body>
         <main>
-          <p class="brand">Badiboss Pay</p>
+          <p class="brand"><span class="mark">BP</span><span>Badiboss Pay</span></p>
           <h1>{escaped_title}</h1>
           <p class="amount">{link.amount:g} {html.escape(link.currency)}</p>
           <p class="note">{escaped_description}</p>
@@ -393,7 +394,7 @@ async def pay_public_link(
         return RedirectResponse(link.success_redirect_url, status_code=303)
     if tx.status == "failed" and link.failure_redirect_url:
         return RedirectResponse(link.failure_redirect_url, status_code=303)
-    message = "Paiement recu avec succes. Merci." if tx.status == "success" else "Paiement envoye, validez sur votre telephone."
+    message = "Paiement recu avec succes. Merci." if tx.status == "success" else "Paiement envoye. Veuillez valider sur votre telephone."
     if tx.status == "failed":
         message = f"Paiement echoue. {_provider_error_message(provider_response, provider_status_code)}"
     return HTMLResponse(

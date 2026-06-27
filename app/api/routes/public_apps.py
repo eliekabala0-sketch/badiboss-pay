@@ -52,7 +52,7 @@ def _get_authenticated_app(
     if not app:
         raise HTTPException(status_code=401, detail="Invalid app credentials")
     if app.status != "active":
-        raise HTTPException(status_code=403, detail="Application is not active")
+        raise HTTPException(status_code=403, detail="Application inactive")
     return app
 
 

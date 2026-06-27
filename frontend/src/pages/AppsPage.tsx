@@ -60,7 +60,7 @@ function AppsPage() {
   async function createApp(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-    const response = await apiClient.post<ConnectedApp>("/apps/create", newApp);
+    const response = await apiClient.post<ConnectedApp>("/apps/create", normalizeAppPayload(newApp));
     setCreatedApp(response.data);
     setNewApp(emptyApp);
     setSuccess("Application creee. Les secrets complets sont affiches une seule fois ci-dessous.");
@@ -68,7 +68,7 @@ function AppsPage() {
   }
 
   async function saveApp(app: ConnectedApp) {
-    await apiClient.patch(`/apps/${app.app_id}`, {
+    await apiClient.patch(`/apps/${app.app_id}`, normalizeAppPayload({
       company_id: app.company_id,
       name: app.name,
       app_type: app.app_type,
@@ -76,15 +76,21 @@ function AppsPage() {
       status: app.status,
       commission_type: app.commission_type,
       commission_value: app.commission_value,
-    });
+    }));
     setEditingAppId(null);
     setSuccess("Application mise a jour.");
     loadApps();
   }
 
-  async function setStatus(appId: string, status: "active" | "suspended") {
+  async function setStatus(appId: string, status: "active" | "inactive") {
+    if (
+      status === "inactive" &&
+      !window.confirm("Cette application ne pourra plus creer de paiements, mais son historique restera disponible.")
+    ) {
+      return;
+    }
     await apiClient.patch(`/apps/${appId}/status`, null, { params: { status_value: status } });
-    setSuccess(status === "active" ? "Application activee." : "Application desactivee.");
+    setSuccess(status === "active" ? "Application reactivee." : "Application desactivee.");
     loadApps();
   }
 
@@ -133,10 +139,20 @@ function AppsPage() {
           <select className="rounded border px-3 py-2" value={newApp.app_type} onChange={(event) => setNewApp((prev) => ({ ...prev, app_type: event.target.value }))}>
             {appTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
-          <select className="rounded border px-3 py-2" value={newApp.commission_type} onChange={(event) => setNewApp((prev) => ({ ...prev, commission_type: event.target.value }))}>
+          <select className="rounded border px-3 py-2" value={newApp.commission_type} onChange={(event) => setNewApp((prev) => ({ ...prev, commission_type: event.target.value, commission_value: event.target.value === "none" ? 0 : prev.commission_value }))}>
             {commissionTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
-          <input className="rounded border px-3 py-2" type="number" step="0.01" placeholder="Valeur commission" value={newApp.commission_value} onChange={(event) => setNewApp((prev) => ({ ...prev, commission_value: Number(event.target.value) }))} />
+          {newApp.commission_type !== "none" && (
+            <input
+              className="rounded border px-3 py-2"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder={newApp.commission_type === "fixed" ? "Montant commission" : "Pourcentage commission"}
+              value={newApp.commission_value}
+              onChange={(event) => setNewApp((prev) => ({ ...prev, commission_value: Number(event.target.value) }))}
+            />
+          )}
           <input className="rounded border px-3 py-2" placeholder="Callback client optionnel" value={newApp.callback_url} onChange={(event) => setNewApp((prev) => ({ ...prev, callback_url: event.target.value }))} />
           <button className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700" type="submit">
             Creer l'application
@@ -188,7 +204,7 @@ function AppsPage() {
                     <p>slug: {app.app_slug}</p>
                     <p>app_id: {app.app_id}</p>
                   </td>
-                  <td className="py-3">{commissionLabel(app.commission_type)} ({app.commission_value})</td>
+                  <td className="py-3">{formatCommission(app)}</td>
                   <td className="py-3 text-xs">
                     <CopyLine label="Payment" value={app.payment_url} onCopy={copy} />
                     <CopyLine label="Status" value={app.status_url} onCopy={copy} />
@@ -196,7 +212,7 @@ function AppsPage() {
                     <CopyLine label="Badiboss callback" value={app.callback_badiboss_pay} onCopy={copy} />
                   </td>
                   <td className="py-3 text-xs">
-                    <CopyLine label="API key" value={app.api_key} onCopy={copy} />
+                    <CopyLine label="API key" value={app.api_key} displayValue={maskValue(app.api_key)} onCopy={copy} />
                     <p>API secret: {app.secret_key}</p>
                     <p>Webhook: {app.webhook_secret}</p>
                   </td>
@@ -209,8 +225,11 @@ function AppsPage() {
                   <td className="py-3">
                     <div className="flex flex-wrap gap-2">
                       <button className="rounded bg-slate-700 px-2 py-1 text-xs text-white" onClick={() => setEditingAppId(app.app_id)} type="button">Modifier</button>
-                      <button className="rounded bg-green-600 px-2 py-1 text-xs text-white" onClick={() => setStatus(app.app_id, "active")} type="button">Activer</button>
-                      <button className="rounded bg-amber-600 px-2 py-1 text-xs text-white" onClick={() => setStatus(app.app_id, "suspended")} type="button">Desactiver</button>
+                      {app.status === "active" ? (
+                        <button className="rounded bg-amber-600 px-2 py-1 text-xs text-white" onClick={() => setStatus(app.app_id, "inactive")} type="button">Desactiver</button>
+                      ) : (
+                        <button className="rounded bg-green-600 px-2 py-1 text-xs text-white" onClick={() => setStatus(app.app_id, "active")} type="button">Reactiver</button>
+                      )}
                       <button className="rounded bg-indigo-600 px-2 py-1 text-xs text-white" onClick={() => regenerateSecret(app.app_id, "api")} type="button">Regenerer secret API</button>
                       <button className="rounded bg-purple-600 px-2 py-1 text-xs text-white" onClick={() => regenerateSecret(app.app_id, "webhook")} type="button">Regenerer webhook</button>
                       <button className="rounded bg-blue-600 px-2 py-1 text-xs text-white" onClick={() => downloadGuide(app)} type="button">Guide</button>
@@ -251,10 +270,20 @@ function AppsPage() {
                 <select className="w-full rounded border px-3 py-2" value={selectedApp.app_type} onChange={(event) => updateSelectedApp(selectedApp.app_id, { app_type: event.target.value }, setApps)}>
                   {appTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
-                <select className="w-full rounded border px-3 py-2" value={selectedApp.commission_type} onChange={(event) => updateSelectedApp(selectedApp.app_id, { commission_type: event.target.value }, setApps)}>
+                <select className="w-full rounded border px-3 py-2" value={selectedApp.commission_type} onChange={(event) => updateSelectedApp(selectedApp.app_id, { commission_type: event.target.value, commission_value: event.target.value === "none" ? 0 : selectedApp.commission_value }, setApps)}>
                   {commissionTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
-                <input className="w-full rounded border px-3 py-2" type="number" step="0.01" value={selectedApp.commission_value} onChange={(event) => updateSelectedApp(selectedApp.app_id, { commission_value: Number(event.target.value) }, setApps)} />
+                {selectedApp.commission_type !== "none" && (
+                  <input
+                    className="w-full rounded border px-3 py-2"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder={selectedApp.commission_type === "fixed" ? "Montant commission" : "Pourcentage commission"}
+                    value={selectedApp.commission_value}
+                    onChange={(event) => updateSelectedApp(selectedApp.app_id, { commission_value: Number(event.target.value) }, setApps)}
+                  />
+                )}
                 <div className="flex gap-2">
                   <button className="rounded bg-blue-600 px-3 py-2 text-sm text-white" onClick={() => saveApp(selectedApp)} type="button">Enregistrer</button>
                   <button className="rounded border px-3 py-2 text-sm" onClick={() => setEditingAppId(null)} type="button">Annuler</button>
@@ -272,10 +301,29 @@ function updateSelectedApp(appId: string, patch: Partial<ConnectedApp>, setApps:
   setApps((items) => items.map((item) => item.app_id === appId ? { ...item, ...patch } : item));
 }
 
-function CopyLine({ label, value, onCopy }: { label: string; value: string; onCopy: (value: string, label: string) => void }) {
+function normalizeAppPayload(app: typeof emptyApp) {
+  return {
+    ...app,
+    commission_value: app.commission_type === "none" ? 0 : app.commission_value,
+  };
+}
+
+function maskValue(value: string, visible = 8) {
+  if (!value) return "";
+  if (value.length <= visible) return "*".repeat(value.length);
+  return `${value.slice(0, visible)}...${value.slice(-4)}`;
+}
+
+function formatCommission(app: Pick<ConnectedApp, "commission_type" | "commission_value">) {
+  if (app.commission_type === "none") return commissionLabel(app.commission_type);
+  const suffix = app.commission_type === "percentage" ? "%" : "";
+  return `${commissionLabel(app.commission_type)} (${app.commission_value}${suffix})`;
+}
+
+function CopyLine({ label, value, displayValue, onCopy }: { label: string; value: string; displayValue?: string; onCopy: (value: string, label: string) => void }) {
   return (
     <p className="mb-1">
-      <span className="font-medium">{label}:</span> <span className="break-all text-slate-600">{value}</span>
+      <span className="font-medium">{label}:</span> <span className="break-all text-slate-600">{displayValue ?? value}</span>
       {value !== "-" && <button className="ml-2 rounded border px-1 py-0.5 text-[11px]" onClick={() => onCopy(value, label)} type="button">Copier</button>}
     </p>
   );

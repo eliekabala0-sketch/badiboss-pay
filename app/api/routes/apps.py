@@ -119,6 +119,10 @@ def _app_response(
     }
 
 
+def _normalized_commission_value(commission_type: str, commission_value: float) -> float:
+    return 0.0 if commission_type == "none" else commission_value
+
+
 @router.get("", response_model=list[ConnectedAppResponse])
 def list_apps(db: Session = Depends(get_db), _=Depends(require_roles(AdminRole.SUPER_ADMIN, AdminRole.VIEWER))):
     apps = db.query(ConnectedApp).order_by(ConnectedApp.created_at.desc()).all()
@@ -146,7 +150,7 @@ def create_app(
         callback_url=payload.callback_url or "",
         status=payload.status,
         commission_type=payload.commission_type,
-        commission_value=payload.commission_value,
+        commission_value=_normalized_commission_value(payload.commission_type, payload.commission_value),
     )
     db.add(app)
     db.commit()
@@ -168,6 +172,8 @@ def update_app(
     for field, value in payload.model_dump(exclude_unset=True).items():
         if value is not None:
             setattr(app, field, value)
+    if app.commission_type == "none":
+        app.commission_value = 0.0
     db.commit()
     db.refresh(app)
     return _app_response(db, app)

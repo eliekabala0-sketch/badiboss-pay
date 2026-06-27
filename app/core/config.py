@@ -51,7 +51,32 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+POSTGRES_URL_ENV_NAMES = (
+    "DATABASE_URL",
+    "DATABASE_PRIVATE_URL",
+    "DATABASE_PUBLIC_URL",
+    "POSTGRES_URL",
+    "POSTGRESQL_URL",
+    "RAILWAY_DATABASE_URL",
+)
+
+
+def _normalize_database_url(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    if value.startswith("postgres://"):
+        return value.replace("postgres://", "postgresql+psycopg2://", 1)
+    if value.startswith("postgresql://"):
+        return value.replace("postgresql://", "postgresql+psycopg2://", 1)
+    return value
+
+
 def _postgres_url_from_env() -> Optional[str]:
+    for name in POSTGRES_URL_ENV_NAMES:
+        url = _normalize_database_url(os.getenv(name))
+        if url:
+            return url
+
     host = os.getenv("PGHOST") or os.getenv("POSTGRES_HOST")
     port = os.getenv("PGPORT") or os.getenv("POSTGRES_PORT")
     database = os.getenv("PGDATABASE") or os.getenv("POSTGRES_DB") or os.getenv("POSTGRES_DATABASE")
@@ -73,8 +98,24 @@ def _postgres_url_from_env() -> Optional[str]:
 
 def get_database_url() -> str:
     default_sqlite_url = "sqlite:///./badiboss_pay.db"
+    postgres_env_url = _postgres_url_from_env()
+    if postgres_env_url:
+        return postgres_env_url
     if settings.database_public_url:
-        return settings.database_public_url
+        return _normalize_database_url(settings.database_public_url) or settings.database_public_url
     if settings.database_url != default_sqlite_url:
-        return settings.database_url
-    return _postgres_url_from_env() or settings.database_url
+        return _normalize_database_url(settings.database_url) or settings.database_url
+    return settings.database_url
+
+
+def database_backend(database_url: Optional[str] = None) -> str:
+    url = database_url or get_database_url()
+    if url.startswith("sqlite"):
+        return "sqlite"
+    if url.startswith(("postgresql", "postgres")):
+        return "postgresql"
+    return "configured"
+
+
+def database_configured() -> bool:
+    return database_backend() != "sqlite"

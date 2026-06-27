@@ -7,9 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
-from app.core.config import get_database_url, settings
+from app.core.config import database_backend, database_configured, get_database_url, settings
 from app.db.base import Base
 from app.db.init_db import seed_default_admin
+from app.db.migrations import run_alembic_upgrade_if_persistent
 from app.db.runtime_schema import ensure_runtime_schema
 from app.db.session import SessionLocal, engine
 from app.frontend_paths import get_frontend_runtime_state, log_frontend_runtime_state, resolve_frontend_dist
@@ -36,16 +37,11 @@ if frontend_assets.exists():
 
 
 def _database_configured() -> bool:
-    return not get_database_url().startswith("sqlite")
+    return database_configured()
 
 
 def _database_backend() -> str:
-    database_url = get_database_url()
-    if database_url.startswith("sqlite"):
-        return "sqlite"
-    if database_url.startswith(("postgresql", "postgres")):
-        return "postgresql"
-    return "configured"
+    return database_backend(get_database_url())
 
 
 def _print_startup_diag(startup_ok: bool) -> None:
@@ -102,6 +98,8 @@ def admin_spa_path(path: str):
 def on_startup():
     _print_startup_diag(startup_ok=False)
     log_frontend_runtime_state()
+    migrations_applied = run_alembic_upgrade_if_persistent()
+    print(f"[startup-diag] alembic_upgrade_applied={'yes' if migrations_applied else 'no'}", flush=True)
     Base.metadata.create_all(bind=engine)
     ensure_runtime_schema(engine)
     db = SessionLocal()

@@ -135,6 +135,16 @@ def _provider_value(payload: dict, key: str):
     return payload.get(key)
 
 
+def _provider_error_message(provider_response: dict, status_code: int | None) -> str:
+    message = provider_response.get("message") or provider_response.get("error") or "SerdiPay a refuse la demande."
+    errors = provider_response.get("errors")
+    if errors:
+        return f"{message} Details: {json.dumps(errors, ensure_ascii=True)}"
+    if status_code:
+        return f"{message} HTTP {status_code}"
+    return str(message)
+
+
 def _link_response(db: Session, link: PaymentLink) -> dict:
     totals = {
         "USD": 0.0,
@@ -359,15 +369,23 @@ async def pay_public_link(
     provider_response = provider_payload.get("serdipay_response", {})
     if not isinstance(provider_response, dict):
         provider_response = {"raw_response": provider_response}
-    provider_status_code = provider_payload.get("serdipay_status_code", 500)
+    provider_status_code = provider_payload.get("serdipay_status_code") or 500
     tx.provider_reference = str(_provider_value(provider_response, "transactionId") or "") or None
     provider_session_id = _provider_value(provider_response, "sessionId")
     tx.provider_session_id = str(provider_session_id) if provider_session_id not in (None, "") else None
     tx.raw_payload = json.dumps(
-        {"provider_status_code": provider_status_code, "provider_response": provider_response},
+        {
+            "payment_link_id": link.id,
+            "title": link.title,
+            "payer_name": payer_name,
+            "payer_phone": payer_phone,
+            "telecom": telecom,
+            "provider_status_code": provider_status_code,
+            "provider_response": provider_response,
+        },
         ensure_ascii=True,
     )
-    if provider_status_code >= 400 and provider_response.get("message") == "SerdiPay token unavailable":
+    if provider_status_code >= 400:
         tx.status = "failed"
     db.commit()
 
@@ -375,7 +393,16 @@ async def pay_public_link(
         return RedirectResponse(link.success_redirect_url, status_code=303)
     if tx.status == "failed" and link.failure_redirect_url:
         return RedirectResponse(link.failure_redirect_url, status_code=303)
-    message = "Paiement recu avec succes. Merci." if tx.status == "success" else "Paiement envoye. Statut en attente de confirmation."
+    message = "Paiement recu avec succes. Merci." if tx.status == "success" else "Paiement envoye, validez sur votre telephone."
     if tx.status == "failed":
-        message = "Paiement echoue. Veuillez reessayer."
-    return HTMLResponse(f"<main style='font-family:Arial;padding:32px'><h1>Badiboss Pay</h1><p>{html.escape(message)}</p><p>Reference: {html.escape(tx.reference)}</p></main>")
+        message = f"Paiement echoue. {_provider_error_message(provider_response, provider_status_code)}"
+    return HTMLResponse(
+        f"""
+        <main style='max-width:560px;margin:32px auto;font-family:Arial;padding:24px;border:1px solid #e2e8f0;border-radius:8px'>
+          <h1>Badiboss Pay</h1>
+          <p>{html.escape(message)}</p>
+          <p>Reference: {html.escape(tx.reference)}</p>
+          <p>Statut: {html.escape(tx.status)}</p>
+        </main>
+        """
+    )

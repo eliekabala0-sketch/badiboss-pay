@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import base64
+import zlib
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -65,7 +66,9 @@ async def _parse_app_payment_request(request: Request) -> AppPaymentRequest:
         if encoded_payload:
             try:
                 raw_body = base64.b64decode(encoded_payload, validate=True)
-            except (ValueError, TypeError):
+                if request.headers.get("x-badiboss-payload-encoding") == "base64-deflate-json":
+                    raw_body = zlib.decompress(raw_body)
+            except (ValueError, TypeError, zlib.error):
                 raise HTTPException(status_code=422, detail="Invalid fallback JSON payload")
         else:
             raise HTTPException(status_code=422, detail="JSON body is required")

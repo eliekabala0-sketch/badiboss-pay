@@ -67,7 +67,7 @@ async def _parse_app_payment_request(request: Request) -> AppPaymentRequest:
             try:
                 raw_body = base64.b64decode(encoded_payload, validate=True)
                 if request.headers.get("x-badiboss-payload-encoding") == "base64-deflate-json":
-                    raw_body = zlib.decompress(raw_body)
+                    raw_body = zlib.decompress(raw_body, -zlib.MAX_WBITS)
             except (ValueError, TypeError, zlib.error):
                 raise HTTPException(status_code=422, detail="Invalid fallback JSON payload")
         else:

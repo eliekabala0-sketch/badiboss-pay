@@ -62,7 +62,7 @@ async def _parse_app_payment_request(request: Request) -> AppPaymentRequest:
     if not raw_body:
         raise HTTPException(status_code=422, detail="JSON body is required")
     try:
-        decoded = json.loads(raw_body.decode("utf-8"))
+        decoded = json.loads(raw_body.decode("utf-8-sig"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         raise HTTPException(status_code=422, detail="Invalid JSON body")
     if isinstance(decoded, dict) and "body" in decoded and isinstance(decoded["body"], (dict, str)):

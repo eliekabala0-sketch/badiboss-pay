@@ -62,11 +62,12 @@ def _get_authenticated_app(
 async def _parse_app_payment_request(request: Request) -> AppPaymentRequest:
     raw_body = await request.body()
     if not raw_body:
-        encoded_payload = request.headers.get("x-badiboss-payload")
+        encoded_payload = request.headers.get("x-badiboss-payload") or request.query_params.get("bb_payload")
+        payload_encoding = request.headers.get("x-badiboss-payload-encoding") or request.query_params.get("bb_payload_encoding")
         if encoded_payload:
             try:
                 raw_body = base64.b64decode(encoded_payload, validate=True)
-                if request.headers.get("x-badiboss-payload-encoding") == "base64-deflate-json":
+                if payload_encoding == "base64-deflate-json":
                     raw_body = zlib.decompress(raw_body, -zlib.MAX_WBITS)
             except (ValueError, TypeError, zlib.error):
                 raise HTTPException(status_code=422, detail="Invalid fallback JSON payload")

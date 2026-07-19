@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import base64
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -60,7 +61,14 @@ def _get_authenticated_app(
 async def _parse_app_payment_request(request: Request) -> AppPaymentRequest:
     raw_body = await request.body()
     if not raw_body:
-        raise HTTPException(status_code=422, detail="JSON body is required")
+        encoded_payload = request.headers.get("x-badiboss-payload")
+        if encoded_payload:
+            try:
+                raw_body = base64.b64decode(encoded_payload, validate=True)
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=422, detail="Invalid fallback JSON payload")
+        else:
+            raise HTTPException(status_code=422, detail="JSON body is required")
     try:
         decoded = json.loads(raw_body.decode("utf-8-sig"))
     except (UnicodeDecodeError, json.JSONDecodeError):

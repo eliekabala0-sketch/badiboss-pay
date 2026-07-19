@@ -4,6 +4,7 @@ import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -56,6 +57,31 @@ def _get_authenticated_app(
     return app
 
 
+async def _parse_app_payment_request(request: Request) -> AppPaymentRequest:
+    raw_body = await request.body()
+    if not raw_body:
+        raise HTTPException(status_code=422, detail="JSON body is required")
+    try:
+        decoded = json.loads(raw_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(status_code=422, detail="Invalid JSON body")
+    if isinstance(decoded, dict) and "body" in decoded and isinstance(decoded["body"], (dict, str)):
+        decoded = decoded["body"]
+        if isinstance(decoded, str):
+            try:
+                decoded = json.loads(decoded)
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=422, detail="Invalid JSON body wrapper")
+    if not isinstance(decoded, dict):
+        raise HTTPException(status_code=422, detail="JSON object body is required")
+    try:
+        if hasattr(AppPaymentRequest, "model_validate"):
+            return AppPaymentRequest.model_validate(decoded)
+        return AppPaymentRequest.parse_obj(decoded)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors())
+
+
 def _find_transaction(db: Session, app: ConnectedApp, transaction_id: str) -> Transaction | None:
     query = db.query(Transaction).filter(Transaction.app_id == app.app_id)
     if transaction_id.isdigit():
@@ -66,13 +92,31 @@ def _find_transaction(db: Session, app: ConnectedApp, transaction_id: str) -> Tr
 
 
 @router.post("/{app_slug}/payments")
-def create_app_payment(
+async def create_app_payment(
     app_slug: str,
-    payload: AppPaymentRequest,
     request: Request,
     db: Session = Depends(get_db),
     x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
     x_api_secret: Optional[str] = Header(default=None, alias="X-API-Secret"),
+):
+    payload = await _parse_app_payment_request(request)
+    return create_app_payment_from_payload(
+        app_slug=app_slug,
+        payload=payload,
+        request=request,
+        db=db,
+        x_api_key=x_api_key,
+        x_api_secret=x_api_secret,
+    )
+
+
+def create_app_payment_from_payload(
+    app_slug: str,
+    payload: AppPaymentRequest,
+    request: Request,
+    db: Session,
+    x_api_key: Optional[str],
+    x_api_secret: Optional[str],
 ):
     app = _get_authenticated_app(db, app_slug, x_api_key, x_api_secret)
     request.state.log_app_id = app.app_id

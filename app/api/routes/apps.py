@@ -17,7 +17,7 @@ from app.models.webhook_log import WebhookLog
 from app.schemas.apps import ConnectedAppCreate, ConnectedAppResponse, ConnectedAppUpdate
 from app.schemas.transactions import AppPaymentRequest
 from app.models.subscription import Subscription
-from app.api.routes.public_apps import create_app_payment
+from app.api.routes.public_apps import create_app_payment_from_payload
 from app.utils.keys import generate_api_key, generate_app_suffix, generate_secret_key, generate_webhook_secret, slugify_app_name
 
 router = APIRouter(prefix="/apps", tags=["Connected Apps"])
@@ -341,7 +341,7 @@ def test_connected_app(
         description=payload.description,
         metadata={"source": "admin_test"},
     )
-    return create_app_payment(
+    return create_app_payment_from_payload(
         app_slug=app.app_slug,
         payload=app_payload,
         request=request,

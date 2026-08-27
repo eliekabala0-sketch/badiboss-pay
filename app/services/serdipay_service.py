@@ -230,7 +230,7 @@ def _token_credentials_diagnostic(selected_password: Any, password_source: str) 
     }
 
 
-def _token_payload_variants() -> list[dict[str, Any]]:
+def _token_payload_variants(include_compatibility: bool = False) -> list[dict[str, Any]]:
     variants = [
         {
             "name": "official_env_password_json",
@@ -313,6 +313,19 @@ def _token_payload_variants() -> list[dict[str, Any]]:
                 },
             }
         )
+    if not include_compatibility:
+        variants = [
+            variant
+            for variant in variants
+            if variant["name"]
+            in {
+                "official_env_password_json",
+                "official_api_password_json",
+                "legacy_merchant_api_credentials_json",
+                "official_mail_password_json",
+            }
+        ]
+
     usable_variants = []
     for variant in variants:
         payload = _clean_payload(variant["payload"])
@@ -529,7 +542,7 @@ def get_token(
     def attempt_summaries() -> list[dict[str, Any]]:
         return [{key: value for key, value in attempt.items() if key != "variables_detected"} for attempt in attempts]
 
-    for variant in _token_payload_variants():
+    for variant in _token_payload_variants(include_compatibility=include_attempts):
         payload = variant["payload"]
         selected_password = payload.get("password") or payload.get("api_password") or variant.get("basic_password")
         password_source = variant["password_source"]

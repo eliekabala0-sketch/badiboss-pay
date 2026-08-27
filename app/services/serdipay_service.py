@@ -544,7 +544,20 @@ def get_token(
     return last_result
 
 
-def create_payment(phone: str, amount: float, currency: str, telecom: str = "AM") -> dict:
+def _normalize_client_phone(phone: str) -> str:
+    normalized = "".join(character for character in str(phone or "") if character.isdigit())
+    if normalized.startswith("0"):
+        normalized = f"243{normalized[1:]}"
+    return normalized
+
+
+def _normalize_telecom(telecom: str) -> str:
+    value = str(telecom or "OM").strip().upper()
+    aliases = {"AFRIMONEY": "AF", "ORANGE": "OM", "AIRTEL": "AM", "MPESA": "MP", "M-PESA": "MP"}
+    return aliases.get(value, value)
+
+
+def create_payment(phone: str, amount: float, currency: str, telecom: str = "OM") -> dict:
     token_data = get_token()
     token_response = token_data.get("response", {})
     access_token = _extract_token(token_response) if isinstance(token_response, dict) else None
@@ -566,10 +579,10 @@ def create_payment(phone: str, amount: float, currency: str, telecom: str = "AM"
         "api_password": settings.serdipay_api_password,
         "merchantCode": settings.serdipay_merchant_code,
         "merchant_pin": settings.serdipay_pin,
-        "clientPhone": phone,
+        "clientPhone": _normalize_client_phone(phone),
         "amount": amount,
         "currency": currency,
-        "telecom": telecom,
+        "telecom": _normalize_telecom(telecom),
     }
     headers = {"Content-Type": "application/json", "Accept": "application/json", "Authorization": f"Bearer {access_token}"}
     try:
@@ -600,7 +613,7 @@ def create_test_payment_diagnostic(
     phone: str | None,
     amount: float | None = None,
     currency: str | None = None,
-    telecom: str = "AM",
+    telecom: str = "OM",
 ) -> dict:
     diagnostic = {
         "step": "token_request",
@@ -647,10 +660,10 @@ def create_test_payment_diagnostic(
         "api_password": settings.serdipay_api_password,
         "merchantCode": settings.serdipay_merchant_code,
         "merchant_pin": settings.serdipay_pin,
-        "clientPhone": phone or settings.serdipay_phone,
+        "clientPhone": _normalize_client_phone(phone or settings.serdipay_phone or ""),
         "amount": payment_amount,
         "currency": str(currency).upper() if currency else None,
-        "telecom": telecom or "AM",
+        "telecom": _normalize_telecom(telecom),
     }
     diagnostic["payload_keys_sent"] = sorted(payload.keys())
 

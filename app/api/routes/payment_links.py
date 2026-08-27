@@ -380,7 +380,7 @@ def public_payment_link(slug: str, db: Session = Depends(get_db)):
                 <option value="OM">Orange Money</option>
                 <option value="AM">Airtel Money</option>
                 <option value="MP">M-Pesa</option>
-                <option value="Afrimoney">Afrimoney</option>
+                <option value="AF">Afrimoney</option>
               </select>
             </label>
             <button type="submit" {disabled}>{button_label}</button>

@@ -13,7 +13,7 @@ class PaymentCreateRequest(BaseModel):
     phone: str
     amount: float = Field(gt=0)
     currency: str
-    telecom: str = "AM"
+    telecom: str = "OM"
     payment_method: str = "mobile_money"
     source_application: Optional[str] = None
 
@@ -29,7 +29,7 @@ class AppPaymentRequest(BaseModel):
     clientPhone: str = Field(min_length=8, max_length=40)
     amount: float = Field(gt=0)
     currency: str
-    telecom: str = "AM"
+    telecom: str = "OM"
     description: Optional[str] = None
     callback_url: Optional[str] = None
     metadata: dict[str, Any] = Field(default_factory=dict)

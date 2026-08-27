@@ -27,7 +27,7 @@ async def legacy_test_payment(request: Request):
         phone=body.get("clientPhone") or body.get("phone"),
         amount=body.get("amount"),
         currency=body.get("currency"),
-        telecom=body.get("telecom", "AM"),
+        telecom=body.get("telecom", "OM"),
     )
 
 

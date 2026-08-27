@@ -15,6 +15,10 @@ const emptyLink = {
   max_uses: 1,
   success_redirect_url: "",
   failure_redirect_url: "",
+  slug: "",
+  brand_name: "Badiboss",
+  brand_logo_url: "",
+  custom_domain: "",
 };
 
 function PaymentLinksPage() {
@@ -65,6 +69,25 @@ function PaymentLinksPage() {
     setSelectedPayments(response.data);
   }
 
+  async function personalizeLink(link: PaymentLink) {
+    const slug = window.prompt("Personnalisez la fin du lien (lettres minuscules, chiffres et tirets).", link.slug);
+    if (slug === null) return;
+    const brand_name = window.prompt("Nom a afficher sur la page de paiement (Badiboss sera utilise si le champ reste vide).", link.brand_name || "Badiboss");
+    if (brand_name === null) return;
+    const brand_logo_url = window.prompt("URL HTTPS du logo (facultatif).", link.brand_logo_url ?? "");
+    if (brand_logo_url === null) return;
+    const custom_domain = window.prompt("Domaine personnalise deja relie a Badiboss Pay (facultatif, ex. payer.ma-marque.com).", link.custom_domain ?? "");
+    if (custom_domain === null) return;
+    try {
+      const response = await apiClient.patch<PaymentLink>(`/payment-links/${link.id}`, { slug, brand_name, brand_logo_url, custom_domain });
+      setCreatedLink(response.data);
+      setSuccess("Lien et page de paiement personnalises.");
+      loadLinks();
+    } catch (requestError: any) {
+      setError(requestError.response?.data?.detail ?? "La personnalisation du lien a echoue.");
+    }
+  }
+
   function copy(value: string, label: string) {
     navigator.clipboard.writeText(value);
     setSuccess(`${label} copie.`);
@@ -92,6 +115,10 @@ function PaymentLinksPage() {
             <option value="CDF">CDF</option>
           </select>
           <input className="rounded border px-3 py-2 md:col-span-3" placeholder="Description optionnelle" value={newLink.description} onChange={(event) => setNewLink((prev) => ({ ...prev, description: event.target.value }))} />
+          <input className="rounded border px-3 py-2" placeholder="Fin du lien optionnelle (ex. facture-2026)" value={newLink.slug} onChange={(event) => setNewLink((prev) => ({ ...prev, slug: event.target.value }))} />
+          <input className="rounded border px-3 py-2" placeholder="Nom affiche (Badiboss par defaut)" value={newLink.brand_name} onChange={(event) => setNewLink((prev) => ({ ...prev, brand_name: event.target.value }))} />
+          <input className="rounded border px-3 py-2" type="url" placeholder="URL HTTPS du logo (facultatif)" value={newLink.brand_logo_url} onChange={(event) => setNewLink((prev) => ({ ...prev, brand_logo_url: event.target.value }))} />
+          <input className="rounded border px-3 py-2 md:col-span-3" placeholder="Domaine personnalise deja configure (ex. payer.ma-marque.com)" value={newLink.custom_domain} onChange={(event) => setNewLink((prev) => ({ ...prev, custom_domain: event.target.value }))} />
           <select className="rounded border px-3 py-2" value={newLink.validity} onChange={(event) => setNewLink((prev) => ({ ...prev, validity: event.target.value }))}>
             <option value="24h">24h</option>
             <option value="7d">7 jours</option>
@@ -153,6 +180,7 @@ function PaymentLinksPage() {
                 <td className="py-3">
                   <div className="flex flex-wrap gap-2">
                     <button className="rounded bg-slate-700 px-2 py-1 text-xs text-white" onClick={() => copy(link.public_url, "Lien public")} type="button">Copier</button>
+                    <button className="rounded bg-indigo-600 px-2 py-1 text-xs text-white" onClick={() => personalizeLink(link)} type="button">Personnaliser</button>
                     {link.is_active ? (
                       <button className="rounded bg-amber-600 px-2 py-1 text-xs text-white" onClick={() => setActive(link, false)} type="button">Desactiver</button>
                     ) : (

@@ -248,6 +248,19 @@ def _token_payload_variants() -> list[dict[str, Any]]:
                 "password": settings.serdipay_api_password,
             },
         },
+        {
+            # This was the production token contract used by Badiboss Pay
+            # before the email/password flow was introduced. Keep it as a
+            # compatibility fallback: SerdiPay distinguishes dashboard users
+            # (for example, Manager) from merchant API credentials.
+            "name": "legacy_merchant_api_credentials_json",
+            "password_source": "SERDIPAY_API_ID/SERDIPAY_API_PASSWORD/SERDIPAY_MERCHANT_CODE",
+            "payload": {
+                "api_id": settings.serdipay_api_id,
+                "api_password": settings.serdipay_api_password,
+                "merchantCode": settings.serdipay_merchant_code,
+            },
+        },
     ]
     if settings.serdipay_mail_password:
         variants.append(
@@ -260,7 +273,11 @@ def _token_payload_variants() -> list[dict[str, Any]]:
                 },
             }
         )
-    return [{**variant, "payload": _clean_payload(variant["payload"])} for variant in variants if variant["payload"].get("password")]
+    return [
+        {**variant, "payload": _clean_payload(variant["payload"])}
+        for variant in variants
+        if variant["payload"].get("password") or variant["payload"].get("api_password")
+    ]
 
 
 def _send_token_request(payload: dict, proxies: dict[str, str] | None = None) -> requests.Response:
@@ -396,8 +413,18 @@ def _token_failure_conclusion(attempts: list[dict[str, Any]]) -> str:
         return f"Variables SerdiPay sensibles absentes ou vides: {', '.join(missing)}."
 
     last = attempts[-1]
+    manager_role = any(
+        "wrong user role" in str(attempt.get("response", {}).get("message", "")).lower()
+        and "manager" in str(attempt.get("response", {}).get("message", "")).lower()
+        for attempt in attempts
+    )
+    legacy_attempt = next((attempt for attempt in attempts if attempt.get("variant") == "legacy_merchant_api_credentials_json"), None)
+    if manager_role and legacy_attempt and legacy_attempt.get("token_present"):
+        return "Le login email/password est refuse comme Manager, mais les credentials API marchand historiques ont obtenu le token."
+    if manager_role:
+        return "SerdiPay reconnait le login email/password comme Manager. Le repli avec api_id/api_password/merchantCode a aussi ete tente; SerdiPay doit confirmer le contrat de token actif et le role API du marchand."
     if last.get("status_code") == 401:
-        return "Le format officiel email/password JSON est correct, mais SerdiPay refuse les credentials fournis pour merchant/get-token."
+        return "SerdiPay refuse les credentials fournis pour merchant/get-token."
     if last.get("status_code") == 400:
         return "SerdiPay retourne une validation 400 avec le payload officiel email/password JSON; verifier que SERDIPAY_EMAIL et SERDIPAY_PASSWORD correspondent exactement aux credentials API marchand."
     return "Le token n'est pas obtenu avec la methode officielle documentee; verifier les credentials API marchand fournis par SerdiPay."
@@ -451,7 +478,7 @@ def get_token(
 
     for variant in _token_payload_variants():
         payload = variant["payload"]
-        selected_password = payload.get("password")
+        selected_password = payload.get("password") or payload.get("api_password")
         password_source = variant["password_source"]
         try:
             response = _send_token_request(payload, proxies=request_proxies)
@@ -498,6 +525,19 @@ def get_token(
 
     if last_result is None:
         last_result = {"endpoint": TOKEN_URL, "status_code": None, "response": {}, "token_present": False, "error": "NoTokenVariants"}
+    # A fallback payload can fail validation after the primary email/password
+    # request has already produced the actionable provider error. Preserve the
+    # latter for payment callers and customer-facing failure messages.
+    role_failure = next(
+        (
+            attempt
+            for attempt in attempts
+            if "wrong user role" in str(attempt.get("response", {}).get("message", "")).lower()
+        ),
+        None,
+    )
+    if role_failure:
+        last_result = role_failure
     if include_attempts:
         last_result["attempts"] = attempt_summaries()
         last_result["conclusion_probable"] = _token_failure_conclusion(attempts)
@@ -511,12 +551,14 @@ def create_payment(phone: str, amount: float, currency: str, telecom: str = "AM"
     reference = str(uuid.uuid4())
     sanitized_token_data = {**token_data, "response": _sanitize_response(token_response)} if isinstance(token_response, dict) else token_data
     if not access_token:
+        token_error = _sanitize_any(token_response) if isinstance(token_response, dict) else {}
+        message = token_error.get("message") or token_error.get("error") or "SerdiPay token unavailable"
         return {
             "reference": reference,
             "token_response": sanitized_token_data,
             "payment_payload_keys_sent": [],
             "serdipay_status_code": token_data.get("status_code") or 401,
-            "serdipay_response": {"message": "SerdiPay token unavailable"},
+            "serdipay_response": {"message": f"SerdiPay token unavailable: {message}"},
         }
 
     payload = {
@@ -530,7 +572,16 @@ def create_payment(phone: str, amount: float, currency: str, telecom: str = "AM"
         "telecom": telecom,
     }
     headers = {"Content-Type": "application/json", "Accept": "application/json", "Authorization": f"Bearer {access_token}"}
-    response = _serdipay_request("POST", PAYMENT_URL, json=payload, headers=headers, timeout=25)
+    try:
+        response = _serdipay_request("POST", PAYMENT_URL, json=payload, headers=headers, timeout=25)
+    except requests.RequestException as exc:
+        return {
+            "reference": reference,
+            "token_response": sanitized_token_data,
+            "payment_payload_keys_sent": sorted(payload.keys()),
+            "serdipay_status_code": 503,
+            "serdipay_response": {"message": f"SerdiPay payment request failed: {_safe_error_message(exc, extra_secrets=(access_token,))}"},
+        }
     try:
         response_payload = response.json()
     except ValueError:

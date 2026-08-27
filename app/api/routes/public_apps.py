@@ -198,7 +198,7 @@ def create_app_payment_from_payload(
         },
         ensure_ascii=True,
     )
-    if provider_status_code >= 400 and provider_response.get("message") == "SerdiPay token unavailable":
+    if provider_status_code >= 400:
         tx.status = "failed"
     if commission > 0 and tx.status == "success":
         db.add(

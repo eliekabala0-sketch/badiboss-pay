@@ -135,6 +135,9 @@ export type PaymentLink = {
   slug: string;
   title: string;
   description: string;
+  brand_name: string;
+  brand_logo_url: string;
+  custom_domain: string;
   amount: number;
   currency: string;
   status: string;

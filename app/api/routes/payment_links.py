@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -36,6 +37,17 @@ class PaymentLinkCreate(BaseModel):
     max_uses: Optional[int] = None
     success_redirect_url: str = ""
     failure_redirect_url: str = ""
+    slug: Optional[str] = Field(default=None, max_length=160)
+    brand_name: str = Field(default="Badiboss", max_length=120)
+    brand_logo_url: str = Field(default="", max_length=500)
+    custom_domain: str = Field(default="", max_length=255)
+
+
+class PaymentLinkUpdate(BaseModel):
+    slug: Optional[str] = Field(default=None, min_length=3, max_length=160)
+    brand_name: Optional[str] = Field(default=None, max_length=120)
+    brand_logo_url: Optional[str] = Field(default=None, max_length=500)
+    custom_domain: Optional[str] = Field(default=None, max_length=255)
 
 
 def _origin() -> str:
@@ -78,7 +90,22 @@ def _max_uses(payload: PaymentLinkCreate) -> int | None:
     return None
 
 
-def _unique_slug(db: Session, title: str) -> str:
+def _normalize_slug(value: str) -> str:
+    slug = str(value or "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
+        raise HTTPException(status_code=400, detail="Le lien personnalise doit contenir uniquement des lettres minuscules, chiffres et tirets.")
+    return slug
+
+
+def _unique_slug(db: Session, title: str, requested_slug: str | None = None, exclude_id: int | None = None) -> str:
+    if requested_slug:
+        slug = _normalize_slug(requested_slug)
+        query = db.query(PaymentLink).filter(PaymentLink.slug == slug)
+        if exclude_id is not None:
+            query = query.filter(PaymentLink.id != exclude_id)
+        if query.first():
+            raise HTTPException(status_code=409, detail="Ce lien personnalise est deja utilise.")
+        return slug
     base_slug = slugify_app_name(title)
     slug = base_slug
     counter = 2
@@ -145,6 +172,24 @@ def _provider_error_message(provider_response: dict, status_code: int | None) ->
     return str(message)
 
 
+def _safe_logo_url(value: str | None) -> str | None:
+    url = str(value or "").strip()
+    if not url:
+        return None
+    if not re.match(r"^https?://", url, flags=re.IGNORECASE):
+        raise HTTPException(status_code=400, detail="L'URL du logo doit commencer par http:// ou https://")
+    return url
+
+
+def _safe_custom_domain(value: str | None) -> str | None:
+    domain = str(value or "").strip().lower()
+    if not domain:
+        return None
+    if not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}", domain):
+        raise HTTPException(status_code=400, detail="Le domaine personnalise doit etre un nom de domaine valide, sans https:// ni chemin.")
+    return domain
+
+
 def _link_response(db: Session, link: PaymentLink) -> dict:
     totals = {
         "USD": 0.0,
@@ -171,6 +216,8 @@ def _link_response(db: Session, link: PaymentLink) -> dict:
         "slug": link.slug,
         "title": link.title,
         "description": link.description or "",
+        "brand_name": link.brand_name or "Badiboss",
+        "brand_logo_url": link.brand_logo_url or "",
         "amount": link.amount,
         "currency": link.currency,
         "status": "expired" if _aware_datetime(link.expires_at) and _aware_datetime(link.expires_at) < datetime.now(timezone.utc) else link.status,
@@ -180,7 +227,8 @@ def _link_response(db: Session, link: PaymentLink) -> dict:
         "success_redirect_url": link.success_redirect_url or "",
         "failure_redirect_url": link.failure_redirect_url or "",
         "created_at": link.created_at,
-        "public_url": f"{_origin()}/l/{link.slug}",
+        "custom_domain": link.custom_domain or "",
+        "public_url": f"https://{link.custom_domain}/l/{link.slug}" if link.custom_domain else f"{_origin()}/l/{link.slug}",
         "payments_count": _payment_count(db, link.id),
         "total_usd": totals["USD"],
         "total_cdf": totals["CDF"],
@@ -206,9 +254,12 @@ def create_payment_link(
     _=Depends(require_roles(AdminRole.SUPER_ADMIN, AdminRole.SUPPORT_ADMIN)),
 ):
     link = PaymentLink(
-        slug=_unique_slug(db, payload.title),
+        slug=_unique_slug(db, payload.title, payload.slug),
         title=payload.title,
         description=payload.description or None,
+        brand_name=payload.brand_name.strip() or "Badiboss",
+        brand_logo_url=_safe_logo_url(payload.brand_logo_url),
+        custom_domain=_safe_custom_domain(payload.custom_domain),
         amount=payload.amount,
         currency=_normalize_currency(payload.currency),
         expires_at=_expires_at(payload),
@@ -219,6 +270,29 @@ def create_payment_link(
         is_active=True,
     )
     db.add(link)
+    db.commit()
+    db.refresh(link)
+    return _link_response(db, link)
+
+
+@router.patch("/payment-links/{link_id}")
+def update_payment_link(
+    link_id: int,
+    payload: PaymentLinkUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles(AdminRole.SUPER_ADMIN, AdminRole.SUPPORT_ADMIN)),
+):
+    link = db.query(PaymentLink).filter(PaymentLink.id == link_id).first()
+    if not link:
+        raise HTTPException(status_code=404, detail="Lien de paiement introuvable")
+    if payload.slug is not None:
+        link.slug = _unique_slug(db, link.title, payload.slug, exclude_id=link.id)
+    if payload.brand_name is not None:
+        link.brand_name = payload.brand_name.strip() or "Badiboss"
+    if payload.brand_logo_url is not None:
+        link.brand_logo_url = _safe_logo_url(payload.brand_logo_url)
+    if payload.custom_domain is not None:
+        link.custom_domain = _safe_custom_domain(payload.custom_domain)
     db.commit()
     db.refresh(link)
     return _link_response(db, link)
@@ -265,6 +339,11 @@ def public_payment_link(slug: str, db: Session = Depends(get_db)):
     block_reason = _link_block_reason(db, link)
     escaped_title = html.escape(link.title)
     escaped_description = html.escape(link.description or "")
+    escaped_brand_name = html.escape(link.brand_name or "Badiboss")
+    logo = ""
+    if link.brand_logo_url:
+        logo = f'<img class="brand-logo" src="{html.escape(link.brand_logo_url, quote=True)}" alt="{escaped_brand_name or escaped_title}" />'
+    brand = f'<p class="brand">{logo}<span>{escaped_brand_name}</span></p>' if escaped_brand_name or logo else ""
     disabled = "disabled" if block_reason else ""
     button_label = html.escape(block_reason or "Payer maintenant")
     return f"""
@@ -282,14 +361,14 @@ def public_payment_link(slug: str, db: Session = Depends(get_db)):
           button {{ width: 100%; margin-top: 20px; padding: 12px; border: 0; border-radius: 6px; background: #2563eb; color: white; font-weight: 700; }}
           button:disabled {{ background: #94a3b8; }}
           .brand {{ display: inline-flex; align-items: center; gap: 10px; color: #2563eb; font-weight: 800; }}
-          .mark {{ display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; background: #2563eb; color: white; }}
+          .brand-logo {{ max-width: 44px; max-height: 44px; object-fit: contain; }}
           .amount {{ font-size: 28px; font-weight: 800; margin: 8px 0; }}
           .note {{ color: #64748b; }}
         </style>
       </head>
       <body>
         <main>
-          <p class="brand"><span class="mark">BP</span><span>Badiboss Pay</span></p>
+          {brand}
           <h1>{escaped_title}</h1>
           <p class="amount">{link.amount:g} {html.escape(link.currency)}</p>
           <p class="note">{escaped_description}</p>
@@ -397,10 +476,15 @@ async def pay_public_link(
     message = "Paiement recu avec succes. Merci." if tx.status == "success" else "Paiement envoye. Veuillez valider sur votre telephone."
     if tx.status == "failed":
         message = f"Paiement echoue. {_provider_error_message(provider_response, provider_status_code)}"
+    completion_brand = html.escape(link.brand_name or "Badiboss")
+    completion_logo = ""
+    if link.brand_logo_url:
+        completion_logo = f'<img style="max-width:44px;max-height:44px;object-fit:contain;vertical-align:middle;margin-right:10px" src="{html.escape(link.brand_logo_url, quote=True)}" alt="{completion_brand or html.escape(link.title)}" />'
+    completion_heading = f"{completion_logo}{completion_brand}" if completion_brand or completion_logo else "Paiement"
     return HTMLResponse(
         f"""
         <main style='max-width:560px;margin:32px auto;font-family:Arial;padding:24px;border:1px solid #e2e8f0;border-radius:8px'>
-          <h1>Badiboss Pay</h1>
+          <h1>{completion_heading}</h1>
           <p>{html.escape(message)}</p>
           <p>Reference: {html.escape(tx.reference)}</p>
           <p>Statut: {html.escape(tx.status)}</p>

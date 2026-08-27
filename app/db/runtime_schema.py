@@ -30,6 +30,9 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 slug VARCHAR(160) NOT NULL,
                 title VARCHAR(255) NOT NULL,
                 description TEXT,
+                brand_name VARCHAR(120),
+                brand_logo_url VARCHAR(500),
+                custom_domain VARCHAR(255),
                 amount FLOAT NOT NULL,
                 currency VARCHAR(10) NOT NULL,
                 expires_at TIMESTAMP,
@@ -50,6 +53,14 @@ def ensure_runtime_schema(engine: Engine) -> None:
         statements.append("ALTER TABLE transactions ADD COLUMN customer_name VARCHAR(255)")
     if "payment_link_id" not in transaction_columns:
         statements.append("ALTER TABLE transactions ADD COLUMN payment_link_id INTEGER")
+    if "payment_links" in table_names:
+        payment_link_columns = {column["name"] for column in inspector.get_columns("payment_links")}
+        if "brand_name" not in payment_link_columns:
+            statements.append("ALTER TABLE payment_links ADD COLUMN brand_name VARCHAR(120)")
+        if "brand_logo_url" not in payment_link_columns:
+            statements.append("ALTER TABLE payment_links ADD COLUMN brand_logo_url VARCHAR(500)")
+        if "custom_domain" not in payment_link_columns:
+            statements.append("ALTER TABLE payment_links ADD COLUMN custom_domain VARCHAR(255)")
     if "provider_session_id" not in transaction_columns:
         statements.append("ALTER TABLE transactions ADD COLUMN provider_session_id VARCHAR(120)")
     if "raw_payload" not in transaction_columns:

@@ -235,6 +235,7 @@ def _token_payload_variants() -> list[dict[str, Any]]:
         {
             "name": "official_env_password_json",
             "password_source": "SERDIPAY_PASSWORD",
+            "transport": "json",
             "payload": {
                 "email": _serdipay_token_email(),
                 "password": settings.serdipay_password,
@@ -243,6 +244,25 @@ def _token_payload_variants() -> list[dict[str, Any]]:
         {
             "name": "official_api_password_json",
             "password_source": "SERDIPAY_API_PASSWORD",
+            "transport": "json",
+            "payload": {
+                "email": _serdipay_token_email(),
+                "password": settings.serdipay_api_password,
+            },
+        },
+        {
+            "name": "official_env_password_form",
+            "password_source": "SERDIPAY_PASSWORD",
+            "transport": "form",
+            "payload": {
+                "email": _serdipay_token_email(),
+                "password": settings.serdipay_password,
+            },
+        },
+        {
+            "name": "official_api_password_form",
+            "password_source": "SERDIPAY_API_PASSWORD",
+            "transport": "form",
             "payload": {
                 "email": _serdipay_token_email(),
                 "password": settings.serdipay_api_password,
@@ -255,11 +275,30 @@ def _token_payload_variants() -> list[dict[str, Any]]:
             # (for example, Manager) from merchant API credentials.
             "name": "legacy_merchant_api_credentials_json",
             "password_source": "SERDIPAY_API_ID/SERDIPAY_API_PASSWORD/SERDIPAY_MERCHANT_CODE",
+            "transport": "json",
             "payload": {
                 "api_id": settings.serdipay_api_id,
                 "api_password": settings.serdipay_api_password,
                 "merchantCode": settings.serdipay_merchant_code,
             },
+        },
+        {
+            "name": "legacy_merchant_api_credentials_form",
+            "password_source": "SERDIPAY_API_ID/SERDIPAY_API_PASSWORD/SERDIPAY_MERCHANT_CODE",
+            "transport": "form",
+            "payload": {
+                "api_id": settings.serdipay_api_id,
+                "api_password": settings.serdipay_api_password,
+                "merchantCode": settings.serdipay_merchant_code,
+            },
+        },
+        {
+            "name": "merchant_api_basic_client_credentials",
+            "password_source": "SERDIPAY_API_ID/SERDIPAY_API_PASSWORD",
+            "transport": "basic",
+            "payload": {"grant_type": "client_credentials"},
+            "basic_username": settings.serdipay_api_id,
+            "basic_password": settings.serdipay_api_password,
         },
     ]
     if settings.serdipay_mail_password:
@@ -267,22 +306,36 @@ def _token_payload_variants() -> list[dict[str, Any]]:
             {
                 "name": "official_mail_password_json",
                 "password_source": "SERDIPAY_MAIL_PASSWORD",
+                "transport": "json",
                 "payload": {
                     "email": _serdipay_token_email(),
                     "password": settings.serdipay_mail_password,
                 },
             }
         )
-    return [
-        {**variant, "payload": _clean_payload(variant["payload"])}
-        for variant in variants
-        if variant["payload"].get("password") or variant["payload"].get("api_password")
-    ]
+    usable_variants = []
+    for variant in variants:
+        payload = _clean_payload(variant["payload"])
+        has_payload_secret = payload.get("password") or payload.get("api_password")
+        has_basic_secret = variant.get("basic_username") and variant.get("basic_password")
+        if has_payload_secret or has_basic_secret:
+            usable_variants.append({**variant, "payload": payload})
+    return usable_variants
 
 
-def _send_token_request(payload: dict, proxies: dict[str, str] | None = None) -> requests.Response:
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
-    kwargs: dict[str, Any] = {"headers": headers, "json": payload, "timeout": 20}
+def _send_token_request(variant: dict[str, Any], proxies: dict[str, str] | None = None) -> requests.Response:
+    payload = variant["payload"]
+    transport = variant.get("transport", "json")
+    headers = {"Accept": "application/json"}
+    kwargs: dict[str, Any] = {"headers": headers, "timeout": 20}
+    if transport == "json":
+        headers["Content-Type"] = "application/json"
+        kwargs["json"] = payload
+    else:
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        kwargs["data"] = payload
+    if transport == "basic":
+        kwargs["auth"] = (variant["basic_username"], variant["basic_password"])
     if proxies:
         kwargs["proxies"] = proxies
     return requests.post(TOKEN_URL, **kwargs)
@@ -478,10 +531,10 @@ def get_token(
 
     for variant in _token_payload_variants():
         payload = variant["payload"]
-        selected_password = payload.get("password") or payload.get("api_password")
+        selected_password = payload.get("password") or payload.get("api_password") or variant.get("basic_password")
         password_source = variant["password_source"]
         try:
-            response = _send_token_request(payload, proxies=request_proxies)
+            response = _send_token_request(variant, proxies=request_proxies)
             data = _parse_response(response)
             token = _extract_token(data) if isinstance(data, dict) else None
             result = {
@@ -491,7 +544,7 @@ def get_token(
                 "password_length": len(str(selected_password)) if selected_password else 0,
                 "password_sha256_prefix": _sha256_prefix(selected_password),
                 "matches_mail_candidate": _password_matches_known_mail_candidate(selected_password),
-                "content_type_used": "application/json",
+                "content_type_used": variant.get("transport", "json"),
                 "payload_keys_sent": sorted(payload.keys()),
                 "status_code": response.status_code,
                 "token_present": bool(token),
@@ -507,7 +560,7 @@ def get_token(
                 "password_length": len(str(selected_password)) if selected_password else 0,
                 "password_sha256_prefix": _sha256_prefix(selected_password),
                 "matches_mail_candidate": _password_matches_known_mail_candidate(selected_password),
-                "content_type_used": "application/json",
+                "content_type_used": variant.get("transport", "json"),
                 "payload_keys_sent": sorted(payload.keys()),
                 "status_code": None,
                 "token_present": False,

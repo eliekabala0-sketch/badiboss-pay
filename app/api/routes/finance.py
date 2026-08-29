@@ -15,6 +15,7 @@ from app.models.merchant_wallet import MerchantWallet
 from app.models.settlement import Settlement
 from app.models.transaction import Transaction
 from app.models.withdrawal import Withdrawal
+from app.services.serdipay_service import create_payout
 from app.utils.phone import normalize_drc_phone
 
 router = APIRouter(prefix="/finance", tags=["Finance"])
@@ -174,6 +175,32 @@ def create_withdrawal(payload: WithdrawalCreate, db: Session = Depends(get_db), 
     db.add(withdrawal)
     db.commit()
     db.refresh(withdrawal)
+
+    if payload.destination_type == "mobile_money":
+        payout = create_payout(
+            phone=payload.mobile_phone or "",
+            amount=payload.amount,
+            currency=currency,
+            telecom=payload.mobile_operator or "OM",
+        )
+        withdrawal.provider_reference = payout.get("provider_reference")
+        if payout.get("accepted"):
+            withdrawal.status = "processing"
+        else:
+            withdrawal.status = "failed"
+            withdrawal.failure_reason = str(payout.get("message") or "Reversement refuse par SerdiPay")[:500]
+            withdrawal.processed_at = datetime.now(timezone.utc)
+            balance = (
+                db.query(MerchantBalance)
+                .filter(MerchantBalance.id == balance.id)
+                .with_for_update()
+                .first()
+            )
+            if balance:
+                balance.pending_balance -= payload.amount
+                balance.available_balance += payload.amount
+        db.commit()
+        db.refresh(withdrawal)
     return withdrawal
 
 

@@ -42,7 +42,7 @@ function WithdrawalsPage() {
     setError(null);
     setMessage(null);
     try {
-      await apiClient.post("/finance/withdrawals", {
+      const response = await apiClient.post<Withdrawal>("/finance/withdrawals", {
         app_id: selectedBalance.app_id,
         company_id: selectedBalance.company_id,
         currency: selectedBalance.currency,
@@ -56,7 +56,13 @@ function WithdrawalsPage() {
         bank_swift: form.destination_type === "bank_account" ? form.bank_swift : null,
       });
       setForm(initialForm);
-      setMessage("Demande enregistrée et montant réservé. Le reversement reste en attente de confirmation externe.");
+      if (response.data.status === "processing") {
+        setMessage("Reversement Mobile Money transmis à SerdiPay. Le montant reste réservé jusqu'à la confirmation finale.");
+      } else if (response.data.status === "failed") {
+        setError(response.data.failure_reason ?? "SerdiPay a refusé le reversement. Le montant a été remis dans le solde disponible.");
+      } else {
+        setMessage("Demande bancaire enregistrée et montant réservé en attente de la référence bancaire.");
+      }
       load();
     } catch (requestError: any) {
       setError(requestError?.response?.data?.detail ?? "Impossible de créer la demande de retrait.");

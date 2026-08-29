@@ -14,8 +14,10 @@ from app.utils.phone import normalize_drc_phone
 
 DEFAULT_TOKEN_URL = "https://serdipay.com/api/public-api/v1/merchant/get-token"
 DEFAULT_PAYMENT_URL = "https://serdipay.com/api/public-api/v1/merchant/payment-merchant"
+DEFAULT_B2C_URL = "https://serdipay.com/api/public-api/v1/merchant/payment-client"
 TOKEN_URL = settings.serdipay_token_url or DEFAULT_TOKEN_URL
 PAYMENT_URL = settings.serdipay_c2b_url or DEFAULT_PAYMENT_URL
+B2C_URL = settings.serdipay_b2c_url or DEFAULT_B2C_URL
 
 
 def _serdipay_proxy_config() -> dict[str, str] | None:
@@ -670,6 +672,69 @@ def create_payment(phone: str, amount: float, currency: str, telecom: str = "OM"
         "payment_payload_keys_sent": sorted(payload.keys()),
         "serdipay_status_code": response.status_code,
         "serdipay_response": _sanitize_any(response_payload, extra_secrets=(access_token,)),
+    }
+
+
+def _payout_reference(payload: Any) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    for container in (payload, payload.get("payment"), payload.get("data")):
+        if not isinstance(container, dict):
+            continue
+        for key in ("transactionId", "transaction_id", "sessionId", "session_id", "reference"):
+            value = container.get(key)
+            if value not in (None, ""):
+                return str(value)
+    return None
+
+
+def create_payout(phone: str, amount: float, currency: str, telecom: str = "OM") -> dict:
+    """Send a merchant-to-client payout request to SerdiPay's configured B2C endpoint."""
+    token_data = get_token()
+    token_response = token_data.get("response", {})
+    access_token = _extract_token(token_response) if isinstance(token_response, dict) else None
+    if not access_token:
+        return {
+            "accepted": False,
+            "status_code": token_data.get("status_code") or 401,
+            "provider_reference": None,
+            "message": "Jeton SerdiPay indisponible",
+        }
+
+    payload = {
+        "api_id": settings.serdipay_api_id,
+        "api_password": settings.serdipay_api_password,
+        "merchantCode": settings.serdipay_merchant_code,
+        "merchant_pin": settings.serdipay_pin,
+        "clientPhone": _normalize_client_phone(phone),
+        "amount": amount,
+        "currency": str(currency).upper(),
+        "telecom": _normalize_telecom(telecom),
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": f"Bearer {access_token}",
+    }
+    try:
+        response = _serdipay_request("POST", B2C_URL, json=payload, headers=headers, timeout=30)
+        response_payload = _parse_response(response)
+    except requests.RequestException as exc:
+        return {
+            "accepted": False,
+            "status_code": 503,
+            "provider_reference": None,
+            "message": f"Reversement SerdiPay inaccessible: {_safe_error_message(exc, extra_secrets=(access_token,))}",
+        }
+
+    safe_payload = _sanitize_any(response_payload, extra_secrets=(access_token,))
+    message = safe_payload.get("message") if isinstance(safe_payload, dict) else None
+    return {
+        "accepted": 200 <= response.status_code < 300,
+        "status_code": response.status_code,
+        "provider_reference": _payout_reference(response_payload),
+        "message": message or ("Reversement transmis a SerdiPay" if response.ok else "Reversement refuse par SerdiPay"),
+        "response": safe_payload,
     }
 
 

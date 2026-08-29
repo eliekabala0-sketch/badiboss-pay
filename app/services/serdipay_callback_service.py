@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 from app.models.commission import Commission
 from app.models.connected_app import ConnectedApp
 from app.models.merchant_balance import MerchantBalance
+from app.models.settlement import Settlement
 from app.models.transaction import Transaction
+from app.models.withdrawal import Withdrawal
 from app.services.audit_service import log_webhook_event
 
 
@@ -83,6 +85,85 @@ def _find_transaction(db: Session, ids: dict[str, str | None]) -> Transaction | 
         )
         .first()
     )
+
+
+def _find_withdrawal(db: Session, ids: dict[str, str | None]) -> Withdrawal | None:
+    candidates = [value for value in ids.values() if value]
+    if not candidates:
+        return None
+    return (
+        db.query(Withdrawal)
+        .filter(
+            or_(
+                Withdrawal.reference.in_(candidates),
+                Withdrawal.provider_reference.in_(candidates),
+            )
+        )
+        .with_for_update()
+        .first()
+    )
+
+
+def _process_withdrawal_callback(
+    db: Session,
+    withdrawal: Withdrawal,
+    ids: dict[str, str | None],
+    callback_status: str,
+) -> dict[str, Any]:
+    previous_status = withdrawal.status
+    if ids["transaction_id"]:
+        withdrawal.provider_reference = ids["transaction_id"]
+    elif ids["session_id"] and not withdrawal.provider_reference:
+        withdrawal.provider_reference = ids["session_id"]
+    if callback_status == "pending" and previous_status in {"pending", "processing"}:
+        withdrawal.status = "processing"
+    elif callback_status in {"success", "failed"} and previous_status in {"pending", "processing"}:
+        balance = (
+            db.query(MerchantBalance)
+            .filter(
+                MerchantBalance.app_id == withdrawal.app_id,
+                MerchantBalance.company_id == withdrawal.company_id,
+                MerchantBalance.currency == withdrawal.currency,
+            )
+            .with_for_update()
+            .first()
+        )
+        if balance and balance.pending_balance >= withdrawal.amount:
+            balance.pending_balance -= withdrawal.amount
+            if callback_status == "failed":
+                balance.available_balance += withdrawal.amount
+        withdrawal.status = "completed" if callback_status == "success" else "failed"
+        withdrawal.failure_reason = None if callback_status == "success" else "Reversement refuse ou annule par SerdiPay"
+        withdrawal.processed_at = datetime.now(timezone.utc)
+        existing_settlement = (
+            db.query(Settlement)
+            .filter(Settlement.withdrawal_reference == withdrawal.reference)
+            .first()
+        )
+        if not existing_settlement:
+            db.add(
+                Settlement(
+                    app_id=withdrawal.app_id,
+                    company_id=withdrawal.company_id,
+                    reference=f"set_{withdrawal.reference}",
+                    amount=withdrawal.amount,
+                    currency=withdrawal.currency,
+                    status="completed" if callback_status == "success" else "failed",
+                    withdrawal_reference=withdrawal.reference,
+                    destination_type=withdrawal.destination_type,
+                    provider_reference=withdrawal.provider_reference,
+                    processed_at=withdrawal.processed_at,
+                )
+            )
+    db.commit()
+    return {
+        "success": True,
+        "action": "withdrawal_updated",
+        "withdrawal_reference": withdrawal.reference,
+        "status": withdrawal.status,
+        "transaction_id": ids["transaction_id"],
+        "session_id": ids["session_id"],
+    }
 
 
 def _ensure_serdipay_callback_app(db: Session) -> ConnectedApp:
@@ -168,6 +249,10 @@ def process_serdipay_callback(db: Session, payload: dict[str, Any]) -> dict[str,
     callback_has_currency = _payload_has_value(payload, "currency")
 
     transaction = _find_transaction(db, ids)
+    if not transaction:
+        withdrawal = _find_withdrawal(db, ids)
+        if withdrawal:
+            return _process_withdrawal_callback(db, withdrawal, ids, status)
     if transaction:
         previous_status = transaction.status
         transaction.status = status

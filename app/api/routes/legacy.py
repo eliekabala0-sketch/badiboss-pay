@@ -35,7 +35,8 @@ async def legacy_test_payment(request: Request):
 async def legacy_serdipay_callback(request: Request, db: Session = Depends(get_db)):
     data = await request.json()
     result = process_serdipay_callback(db, data if isinstance(data, dict) else {"payload": data})
-    tx = db.query(Transaction).filter(Transaction.reference == result["transaction_reference"]).first()
+    transaction_reference = result.get("transaction_reference")
+    tx = db.query(Transaction).filter(Transaction.reference == transaction_reference).first() if transaction_reference else None
     if tx:
         send_client_callback(db, tx)
     return {**result, "received": data}

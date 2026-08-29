@@ -21,7 +21,8 @@ router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
 async def serdipay_callback(request: Request, db: Session = Depends(get_db)):
     payload = await request.json()
     result = process_serdipay_callback(db, payload if isinstance(payload, dict) else {"payload": payload})
-    tx = db.query(Transaction).filter(Transaction.reference == result["transaction_reference"]).first()
+    transaction_reference = result.get("transaction_reference")
+    tx = db.query(Transaction).filter(Transaction.reference == transaction_reference).first() if transaction_reference else None
     if tx:
         send_client_callback(db, tx)
     return result

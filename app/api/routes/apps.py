@@ -6,7 +6,7 @@ from sqlalchemy import func
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.api.deps import get_db, require_roles
 from app.core.config import settings
@@ -19,6 +19,7 @@ from app.schemas.transactions import AppPaymentRequest
 from app.models.subscription import Subscription
 from app.api.routes.public_apps import create_app_payment_from_payload
 from app.utils.keys import generate_api_key, generate_app_suffix, generate_secret_key, generate_webhook_secret, slugify_app_name
+from app.utils.phone import normalize_drc_phone
 
 router = APIRouter(prefix="/apps", tags=["Connected Apps"])
 
@@ -29,6 +30,11 @@ class AppTestPaymentRequest(BaseModel):
     currency: str
     telecom: str = "OM"
     description: str = "Test application"
+
+    @field_validator("clientPhone")
+    @classmethod
+    def validate_phone(cls, value: str) -> str:
+        return normalize_drc_phone(value)
 
 
 def _public_origin() -> str:

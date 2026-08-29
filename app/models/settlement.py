@@ -17,6 +17,9 @@ class Settlement(Base):
     amount: Mapped[float] = mapped_column(Float, nullable=False)
     currency: Mapped[str] = mapped_column(String(10), default="CDF", nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    withdrawal_reference: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
+    destination_type: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    provider_reference: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
     processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False

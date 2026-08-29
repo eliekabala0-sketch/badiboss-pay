@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import requests
 
 from app.core.config import settings
+from app.utils.phone import normalize_drc_phone
 
 DEFAULT_TOKEN_URL = "https://serdipay.com/api/public-api/v1/merchant/get-token"
 DEFAULT_PAYMENT_URL = "https://serdipay.com/api/public-api/v1/merchant/payment-merchant"
@@ -611,10 +612,7 @@ def get_token(
 
 
 def _normalize_client_phone(phone: str) -> str:
-    normalized = "".join(character for character in str(phone or "") if character.isdigit())
-    if normalized.startswith("0"):
-        normalized = f"243{normalized[1:]}"
-    return normalized
+    return normalize_drc_phone(phone)
 
 
 def _normalize_telecom(telecom: str) -> str:

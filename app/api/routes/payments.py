@@ -32,6 +32,17 @@ def _provider_value(payload: dict, key: str):
     return payload.get(key)
 
 
+def _initial_provider_status(payload: dict, status_code: int) -> str:
+    explicit_status = str(_provider_value(payload, "status") or "").strip().lower()
+    if explicit_status in {"success", "successful", "paid", "completed"}:
+        return "success"
+    if explicit_status in {"failed", "failure", "cancelled", "canceled", "error"} or status_code >= 400:
+        return "failed"
+    # A SerdiPay HTTP 200 can only mean that the prompt reached the telecom.
+    # Money becomes available exclusively after a successful callback.
+    return "pending"
+
+
 def _update_merchant_balance(db: Session, tx: Transaction) -> None:
     if tx.status != "success":
         return
@@ -87,11 +98,7 @@ def create_payment_endpoint(payload: PaymentCreateRequest, request: Request, db:
         _provider_value(provider_response, "transactionId") or _provider_value(provider_response, "reference") or ""
     )
     provider_session_id = _provider_value(provider_response, "sessionId")
-    status_value = "pending"
-    if provider_status_code in (200, 201):
-        status_value = "success"
-    elif provider_status_code >= 400:
-        status_value = "failed"
+    status_value = _initial_provider_status(provider_response, provider_status_code)
 
     provider_fees = 0.0
     commission, net_amount = compute_commission_and_net(app, payload.amount, provider_fees=provider_fees)

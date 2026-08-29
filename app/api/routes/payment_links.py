@@ -21,6 +21,7 @@ from app.models.payment_link import PaymentLink
 from app.models.transaction import Transaction
 from app.services.serdipay_service import create_payment
 from app.services.tracking_service import collect_tracking_data
+from app.utils.phone import normalize_drc_phone
 from app.utils.keys import generate_app_suffix, slugify_app_name
 
 router = APIRouter(tags=["Payment Links"])
@@ -358,6 +359,9 @@ def public_payment_link(slug: str, db: Session = Depends(get_db)):
           main {{ max-width: 560px; margin: 32px auto; background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 24px; }}
           label {{ display: block; margin-top: 14px; font-size: 14px; font-weight: 600; }}
           input, select {{ width: 100%; box-sizing: border-box; margin-top: 6px; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; }}
+          .phone-field {{ display: flex; align-items: stretch; margin-top: 6px; }}
+          .phone-prefix {{ display: flex; align-items: center; padding: 0 12px; border: 1px solid #cbd5e1; border-right: 0; border-radius: 6px 0 0 6px; background: #f1f5f9; font-weight: 700; }}
+          .phone-field input {{ margin-top: 0; border-radius: 0 6px 6px 0; }}
           button {{ width: 100%; margin-top: 20px; padding: 12px; border: 0; border-radius: 6px; background: #2563eb; color: white; font-weight: 700; }}
           button:disabled {{ background: #94a3b8; }}
           .brand {{ display: inline-flex; align-items: center; gap: 10px; color: #2563eb; font-weight: 800; }}
@@ -374,7 +378,9 @@ def public_payment_link(slug: str, db: Session = Depends(get_db)):
           <p class="note">{escaped_description}</p>
           <form method="post" action="/l/{html.escape(link.slug)}/pay">
             <label>Nom du payeur<input name="payer_name" required /></label>
-            <label>Telephone du payeur<input name="payer_phone" required /></label>
+            <label>Telephone du payeur
+              <span class="phone-field"><span class="phone-prefix">+243</span><input name="payer_phone" inputmode="numeric" autocomplete="tel-national" pattern="[0-9]{{9}}" minlength="9" maxlength="9" placeholder="897970873" title="Saisissez les 9 chiffres sans zero initial" required /></span>
+            </label>
             <label>Telecom
               <select name="telecom">
                 <option value="OM">Orange Money</option>
@@ -399,10 +405,14 @@ async def pay_public_link(
 ):
     form_values = parse_qs((await request.body()).decode("utf-8"))
     payer_name = (form_values.get("payer_name") or [""])[0].strip()
-    payer_phone = (form_values.get("payer_phone") or [""])[0].strip()
+    payer_phone_input = (form_values.get("payer_phone") or [""])[0].strip()
     telecom = (form_values.get("telecom") or ["OM"])[0].strip() or "OM"
-    if not payer_name or not payer_phone:
+    if not payer_name or not payer_phone_input:
         raise HTTPException(status_code=400, detail="Nom et telephone du payeur requis")
+    try:
+        payer_phone = normalize_drc_phone(payer_phone_input)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     link = db.query(PaymentLink).filter(PaymentLink.slug == slug).first()
     if not link:
         raise HTTPException(status_code=404, detail="Lien de paiement introuvable")

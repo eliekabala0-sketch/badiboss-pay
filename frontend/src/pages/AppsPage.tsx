@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, FormEvent, ReactNode, SetStateAction } from "react";
 
 import { apiClient } from "../api/client";
+import DrcPhoneInput from "../components/DrcPhoneInput";
 import { AppApiJournalItem, CompanySummary, ConnectedApp, WebhookLog } from "../types/api";
 import { appTypeLabel, commissionLabel, formatDate, formatMoney, statusLabel } from "../utils/format";
 
@@ -119,7 +120,10 @@ function AppsPage() {
     event.preventDefault();
     if (!testApp) return;
     setTestResult(null);
-    const response = await apiClient.post<Record<string, unknown>>(`/apps/${testApp.app_id}/test-payment`, testPayload);
+    const response = await apiClient.post<Record<string, unknown>>(`/apps/${testApp.app_id}/test-payment`, {
+      ...testPayload,
+      clientPhone: `243${testPayload.clientPhone}`,
+    });
     setTestResult(response.data);
   }
 
@@ -324,7 +328,7 @@ function AppsPage() {
       {testApp && (
         <Modal title={`Tester ${testApp.name}`} onClose={() => setTestApp(null)}>
           <form className="grid grid-cols-1 gap-3 md:grid-cols-2" onSubmit={runAppTest}>
-            <input className="rounded border px-3 py-2" placeholder="Telephone client" value={testPayload.clientPhone} onChange={(event) => setTestPayload((prev) => ({ ...prev, clientPhone: event.target.value }))} required />
+            <DrcPhoneInput value={testPayload.clientPhone} onChange={(clientPhone) => setTestPayload((prev) => ({ ...prev, clientPhone }))} required />
             <input className="rounded border px-3 py-2" type="number" min="0" step="0.01" value={testPayload.amount} onChange={(event) => setTestPayload((prev) => ({ ...prev, amount: Number(event.target.value) }))} required />
             <select className="rounded border px-3 py-2" value={testPayload.currency} onChange={(event) => setTestPayload((prev) => ({ ...prev, currency: event.target.value }))}>
               <option value="USD">USD</option>

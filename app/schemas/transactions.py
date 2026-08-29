@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.utils.phone import normalize_drc_phone
 
 
 class PaymentCreateRequest(BaseModel):
@@ -16,6 +18,11 @@ class PaymentCreateRequest(BaseModel):
     telecom: str = "OM"
     payment_method: str = "mobile_money"
     source_application: Optional[str] = None
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str) -> str:
+        return normalize_drc_phone(value)
 
 
 class PaymentStatusRequest(BaseModel):
@@ -33,6 +40,11 @@ class AppPaymentRequest(BaseModel):
     description: Optional[str] = None
     callback_url: Optional[str] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("clientPhone")
+    @classmethod
+    def validate_phone(cls, value: str) -> str:
+        return normalize_drc_phone(value)
 
 
 class TransactionResponse(BaseModel):

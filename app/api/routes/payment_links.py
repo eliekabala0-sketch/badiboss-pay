@@ -45,6 +45,14 @@ class PaymentLinkCreate(BaseModel):
 
 
 class PaymentLinkUpdate(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    amount: Optional[float] = Field(default=None, gt=0)
+    currency: Optional[str] = None
+    description: Optional[str] = Field(default=None, max_length=5000)
+    expires_at: Optional[datetime] = None
+    max_uses: Optional[int] = Field(default=None, gt=0)
+    success_redirect_url: Optional[str] = Field(default=None, max_length=500)
+    failure_redirect_url: Optional[str] = Field(default=None, max_length=500)
     slug: Optional[str] = Field(default=None, min_length=3, max_length=160)
     brand_name: Optional[str] = Field(default=None, max_length=120)
     brand_logo_url: Optional[str] = Field(default=None, max_length=500)
@@ -191,6 +199,15 @@ def _safe_custom_domain(value: str | None) -> str | None:
     return domain
 
 
+def _safe_redirect_url(value: str | None) -> str | None:
+    url = str(value or "").strip()
+    if not url:
+        return None
+    if not re.match(r"^https?://", url, flags=re.IGNORECASE):
+        raise HTTPException(status_code=400, detail="L'URL de redirection doit commencer par http:// ou https://")
+    return url
+
+
 def _link_response(db: Session, link: PaymentLink) -> dict:
     totals = {
         "USD": 0.0,
@@ -286,6 +303,23 @@ def update_payment_link(
     link = db.query(PaymentLink).filter(PaymentLink.id == link_id).first()
     if not link:
         raise HTTPException(status_code=404, detail="Lien de paiement introuvable")
+    fields = payload.model_fields_set
+    if payload.title is not None:
+        link.title = payload.title.strip()
+    if payload.amount is not None:
+        link.amount = payload.amount
+    if payload.currency is not None:
+        link.currency = _normalize_currency(payload.currency)
+    if "description" in fields:
+        link.description = (payload.description or "").strip() or None
+    if "expires_at" in fields:
+        link.expires_at = _aware_datetime(payload.expires_at)
+    if "max_uses" in fields:
+        link.max_uses = payload.max_uses
+    if "success_redirect_url" in fields:
+        link.success_redirect_url = _safe_redirect_url(payload.success_redirect_url)
+    if "failure_redirect_url" in fields:
+        link.failure_redirect_url = _safe_redirect_url(payload.failure_redirect_url)
     if payload.slug is not None:
         link.slug = _unique_slug(db, link.title, payload.slug, exclude_id=link.id)
     if payload.brand_name is not None:

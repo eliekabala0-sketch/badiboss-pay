@@ -21,11 +21,34 @@ const emptyLink = {
   custom_domain: "",
 };
 
+type EditLinkForm = {
+  id: number;
+  public_url: string;
+  title: string;
+  amount: string;
+  currency: string;
+  description: string;
+  brand_name: string;
+  brand_logo_url: string;
+  expires_at: string;
+  max_uses: string;
+  success_redirect_url: string;
+  failure_redirect_url: string;
+};
+
+function localDateTimeValue(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
 function PaymentLinksPage() {
   const [links, setLinks] = useState<PaymentLink[]>([]);
   const [newLink, setNewLink] = useState(emptyLink);
   const [createdLink, setCreatedLink] = useState<PaymentLink | null>(null);
   const [selectedPayments, setSelectedPayments] = useState<Transaction[] | null>(null);
+  const [editLink, setEditLink] = useState<EditLinkForm | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -67,6 +90,51 @@ function PaymentLinksPage() {
   async function loadPayments(link: PaymentLink) {
     const response = await apiClient.get<Transaction[]>(`/payment-links/${link.id}/payments`);
     setSelectedPayments(response.data);
+  }
+
+  function startEditing(link: PaymentLink) {
+    setEditLink({
+      id: link.id,
+      public_url: link.public_url,
+      title: link.title,
+      amount: String(link.amount),
+      currency: link.currency,
+      description: link.description ?? "",
+      brand_name: link.brand_name || "Badiboss",
+      brand_logo_url: link.brand_logo_url ?? "",
+      expires_at: localDateTimeValue(link.expires_at),
+      max_uses: link.max_uses == null ? "" : String(link.max_uses),
+      success_redirect_url: link.success_redirect_url ?? "",
+      failure_redirect_url: link.failure_redirect_url ?? "",
+    });
+    setError(null);
+    setSuccess(null);
+  }
+
+  async function saveLink(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editLink) return;
+    setError(null);
+    try {
+      const response = await apiClient.patch<PaymentLink>(`/payment-links/${editLink.id}`, {
+        title: editLink.title,
+        amount: Number(editLink.amount),
+        currency: editLink.currency,
+        description: editLink.description,
+        brand_name: editLink.brand_name,
+        brand_logo_url: editLink.brand_logo_url,
+        expires_at: editLink.expires_at ? new Date(editLink.expires_at).toISOString() : null,
+        max_uses: editLink.max_uses ? Number(editLink.max_uses) : null,
+        success_redirect_url: editLink.success_redirect_url,
+        failure_redirect_url: editLink.failure_redirect_url,
+      });
+      setCreatedLink(response.data);
+      setEditLink(null);
+      setSuccess("Modifications enregistrees. Le lien public reste identique et ne doit pas etre repartage.");
+      loadLinks();
+    } catch (requestError: any) {
+      setError(requestError.response?.data?.detail ?? "La modification du lien a echoue.");
+    }
   }
 
   async function personalizeLink(link: PaymentLink) {
@@ -153,6 +221,33 @@ function PaymentLinksPage() {
         </div>
       )}
 
+      {editLink && (
+        <form className="mt-4 rounded border border-indigo-200 bg-white p-4 shadow-sm" onSubmit={saveLink}>
+          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h3 className="font-semibold">Modifier les donnees du lien</h3>
+              <p className="text-xs text-slate-600">L'adresse ci-dessous ne sera pas modifiee. Les personnes qui la possedent verront directement les nouvelles donnees.</p>
+              <p className="mt-1 break-all text-xs font-medium text-indigo-700">{editLink.public_url}</p>
+            </div>
+            <button className="rounded border px-3 py-1 text-sm" onClick={() => setEditLink(null)} type="button">Annuler</button>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <input className="rounded border px-3 py-2" placeholder="Motif du paiement" value={editLink.title} onChange={(event) => setEditLink((prev) => prev && ({ ...prev, title: event.target.value }))} required />
+            <input className="rounded border px-3 py-2" type="number" min="0.01" step="0.01" placeholder="Montant" value={editLink.amount} onChange={(event) => setEditLink((prev) => prev && ({ ...prev, amount: event.target.value }))} required />
+            <select className="rounded border px-3 py-2" value={editLink.currency} onChange={(event) => setEditLink((prev) => prev && ({ ...prev, currency: event.target.value }))}><option value="USD">USD</option><option value="CDF">CDF</option></select>
+            <textarea className="rounded border px-3 py-2 md:col-span-3" placeholder="Description" value={editLink.description} onChange={(event) => setEditLink((prev) => prev && ({ ...prev, description: event.target.value }))} />
+            <input className="rounded border px-3 py-2" placeholder="Nom affiche (Badiboss par defaut)" value={editLink.brand_name} onChange={(event) => setEditLink((prev) => prev && ({ ...prev, brand_name: event.target.value }))} />
+            <input className="rounded border px-3 py-2 md:col-span-2" type="url" placeholder="URL HTTPS du logo" value={editLink.brand_logo_url} onChange={(event) => setEditLink((prev) => prev && ({ ...prev, brand_logo_url: event.target.value }))} />
+            <label className="text-xs text-slate-600">Expiration (vide = sans expiration)<input className="mt-1 w-full rounded border px-3 py-2 text-sm" type="datetime-local" value={editLink.expires_at} onChange={(event) => setEditLink((prev) => prev && ({ ...prev, expires_at: event.target.value }))} /></label>
+            <label className="text-xs text-slate-600">Nombre maximum (vide = illimite)<input className="mt-1 w-full rounded border px-3 py-2 text-sm" type="number" min="1" value={editLink.max_uses} onChange={(event) => setEditLink((prev) => prev && ({ ...prev, max_uses: event.target.value }))} /></label>
+            <div />
+            <input className="rounded border px-3 py-2" type="url" placeholder="Redirection succes" value={editLink.success_redirect_url} onChange={(event) => setEditLink((prev) => prev && ({ ...prev, success_redirect_url: event.target.value }))} />
+            <input className="rounded border px-3 py-2" type="url" placeholder="Redirection echec" value={editLink.failure_redirect_url} onChange={(event) => setEditLink((prev) => prev && ({ ...prev, failure_redirect_url: event.target.value }))} />
+            <button className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white" type="submit">Enregistrer sans changer le lien</button>
+          </div>
+        </form>
+      )}
+
       <div className="mt-4 overflow-x-auto rounded bg-white p-3 shadow-sm">
         <table className="w-full min-w-[1180px] text-left text-sm">
           <thead>
@@ -180,7 +275,8 @@ function PaymentLinksPage() {
                 <td className="py-3">
                   <div className="flex flex-wrap gap-2">
                     <button className="rounded bg-slate-700 px-2 py-1 text-xs text-white" onClick={() => copy(link.public_url, "Lien public")} type="button">Copier</button>
-                    <button className="rounded bg-indigo-600 px-2 py-1 text-xs text-white" onClick={() => personalizeLink(link)} type="button">Personnaliser</button>
+                    <button className="rounded bg-indigo-600 px-2 py-1 text-xs text-white" onClick={() => startEditing(link)} type="button">Modifier les donnees</button>
+                    <button className="rounded bg-purple-600 px-2 py-1 text-xs text-white" onClick={() => personalizeLink(link)} type="button">Modifier l'adresse</button>
                     {link.is_active ? (
                       <button className="rounded bg-amber-600 px-2 py-1 text-xs text-white" onClick={() => setActive(link, false)} type="button">Desactiver</button>
                     ) : (
